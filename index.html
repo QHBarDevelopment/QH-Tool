@@ -451,6 +451,7 @@
       <button class="tab active" data-tab="barTool">Bar Tool</button>
       <button class="tab" data-tab="prepTool">Prep Tool</button>
       <button class="tab" data-tab="extra">Extra</button>
+      <button class="tab" data-tab="invoices">Invoices</button>
       <button class="tab" data-tab="invMap">Inv Map</button>
       <button class="tab tab-setup" data-tab="setup">SETUP</button>
     </nav>
@@ -626,6 +627,55 @@
       </div>
     </section>
 
+    <section id="invoices" class="view">
+      <div class="input-block" id="invCompanyBlock">
+        <h3>Company Letterhead</h3>
+        <p class="inputs-hint">Saved once, used on every invoice PDF generated below (LCBO and Beer Store).</p>
+        <div class="name-field">
+          <label>Business Name</label>
+          <input type="text" class="text-field-input" id="invCompanyName" placeholder="QH Bar">
+        </div>
+        <div class="name-field">
+          <label>Address</label>
+          <input type="text" class="text-field-input" id="invCompanyAddress" placeholder="Street address">
+        </div>
+        <div class="name-field">
+          <label>City, Province, Postal Code</label>
+          <input type="text" class="text-field-input" id="invCompanyCityProvPostal" placeholder="Toronto, ON  M5V 0A1">
+        </div>
+        <div class="dual-input-row">
+          <div class="dual-input">
+            <label>Phone</label>
+            <input type="text" class="text-field-input" id="invCompanyPhone" placeholder="(555) 555-5555">
+          </div>
+          <div class="dual-input">
+            <label>Email</label>
+            <input type="text" class="text-field-input" id="invCompanyEmail" placeholder="office@qhbar.com">
+          </div>
+        </div>
+        <div class="name-field" style="margin-bottom:0;">
+          <label>HST / Business Number</label>
+          <input type="text" class="text-field-input" id="invCompanyHst" placeholder="123456789 RT0001">
+        </div>
+      </div>
+
+      <nav class="subtabs">
+        <button class="subtab active" data-subtab="invLcbo">LCBO</button>
+        <button class="subtab" data-subtab="invBeerStore">Beer Store</button>
+      </nav>
+
+      <section id="invLcbo" class="subview active">
+        <div id="invLcboContent"></div>
+      </section>
+
+      <section id="invBeerStore" class="subview">
+        <div id="invBeerStoreContent"></div>
+      </section>
+
+      <datalist id="invLcboNamesList"></datalist>
+      <datalist id="invBeerStoreNamesList"></datalist>
+    </section>
+
     <section id="invMap" class="view">
       <div class="admin-lock" id="invMapLockBar">
         <span id="invMapLockIcon">🔒</span>
@@ -734,6 +784,8 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf-autotable.min.js"></script>
 <script>
 const INITIAL_NUM_KEGS = 14;
 const INITIAL_NUM_BATCHES = 20;
@@ -741,6 +793,7 @@ const INITIAL_NUM_BATCH_BARS = 10;
 const STORAGE_KEY = 'kegCalculatorData';
 const ADMIN_CODE = '9906';
 const OZ_TO_L = 0.0295735; // 1 US fluid ounce in liters
+const INVOICE_TAX_RATE = 0.13; // Ontario HST — the rate already baked into every supplier unit price
 let setupUnlocked = false; // resets to locked every time the page loads
 
 // Kitchen Waste price reference. unit is "L" or "Kg" — whichever the item is naturally measured
@@ -950,6 +1003,16 @@ let LIQUOR_ITEMS = [
   {n:"Tullamore Dew Honey - Pack 750 ml",ml:750.0},
   {n:"Wray & Nephew White Rum - Pack 750 ml",ml:750.0}
 ];
+
+// Strips the trailing "- Pack 750 ml" / "- Bottle 750 ml" / "- L" pack-size suffix off a LIQUOR_ITEMS
+// name so it reads like an invoice line item. Used to build the Invoices > LCBO autocomplete list
+// (invLcboNamesList) — deduped, since several pack sizes of the same product share one clean name.
+function liquorDisplayName(raw){
+  let s = String(raw || '').trim();
+  s = s.replace(/\s*-\s*(Pack|Bottle)\s+[\d.]+\s*ml\s*$/i, '');
+  s = s.replace(/\s*-\s*L\s*$/i, '');
+  return s.trim();
+}
 
 // Same order as LIQUOR_ITEMS. s = the 8 Storage area columns, c = Category, t = Type — copied from the InvCount-5-Filtered.xlsx sheet so the export can rebuild that exact format.
 let LIQUOR_META = [
@@ -1168,6 +1231,29 @@ let KEG_ITEMS = [
   {n:"Nickel Brook Lager - No Bad Daze (Keg - 58.6L)",l:58.6},
   {n:"Party Dad - 58 L",l:58.0},
   {n:"Stella Artois Keg",l:58.6}
+];
+
+// Beer Store invoice item-name suggestions — the same beers as KEG_ITEMS above, with the keg/volume
+// suffix cleaned off so they read like packaged-goods invoice lines rather than a keg spec sheet.
+// This is only an autocomplete list (the Invoices > Beer Store item field is free text), so any
+// other beer bought there can still just be typed in.
+const BEER_STORE_NAMES = [
+  "Asahi Super Dry",
+  "Bellweiser",
+  "Corona Extra",
+  "Flying Monkey Juicy Ass",
+  "Goose Island IPA",
+  "Guinness",
+  "Jelly King",
+  "Kronenbourg 1664",
+  "Michelob Ultra",
+  "Mill Street Original Organic Lager",
+  "Modelo Especial",
+  "Naughty Neighbour",
+  "Nickel Brook Easy Going Lager",
+  "Nickel Brook Lager - No Bad Daze",
+  "Party Dad",
+  "Stella Artois"
 ];
 
 // Same order as KEG_ITEMS. s = the 8 Storage area columns, c = Category, t = Type — copied from
@@ -1666,7 +1752,8 @@ function loadData(){
     wasteItems: [],
     wasteOzValue: null,
     kitchenWasteItems: KITCHEN_WASTE_ITEMS.map(it => ({ n: it.n, desc: it.desc, unit: it.unit, price: it.price, qty: null })),
-    invMap: null
+    invMap: null,
+    invoices: null
   };
 }
 function emptyKitchenWasteItem(){
@@ -2372,6 +2459,366 @@ function calcLiquorVolume(cfg, reading){
 function liquorHasInput(reading){
   if(reading.ea !== null && reading.ea !== '' && Number(reading.ea) !== 0) return true;
   return (reading.opens || []).some(v => v !== null && v !== '' && Number(v) !== 0);
+}
+
+// ---------- Invoices (LCBO / Beer Store) ----------
+// The supplier invoices we receive from LCBO and the Beer Store already have HST baked into every
+// unit price. All we enter here is exactly what's on that invoice — item name, quantity, unit price
+// with tax included — and this recalculates the tax-excl. unit price plus a Subtotal/HST/Total
+// breakdown for our own records. The Total is always the literal sum of (qty × price-with-tax) the
+// person typed in, so it matches the real supplier invoice total by construction; only the split
+// between Subtotal and HST (13%) is derived from that Total, never the other way around.
+const INVOICE_SUPPLIER_LABEL = { lcbo:'LCBO', beerStore:'The Beer Store' };
+
+function emptyInvoiceItem(){
+  return { name:'', qty:null, priceWithTax:null };
+}
+function todayInputValue(){
+  const d = new Date();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+function ensureInvoicesState(){
+  if(!state.invoices || typeof state.invoices !== 'object') state.invoices = {};
+  if(!state.invoices.company || typeof state.invoices.company !== 'object') state.invoices.company = {};
+  const c = state.invoices.company;
+  if(c.name === undefined || c.name === null) c.name = 'QH Bar';
+  ['address','cityProvPostal','phone','email','hst'].forEach(f=>{
+    if(c[f] === undefined || c[f] === null) c[f] = '';
+  });
+  ['lcbo','beerStore'].forEach(key=>{
+    if(!state.invoices[key] || typeof state.invoices[key] !== 'object') state.invoices[key] = {};
+    const inv = state.invoices[key];
+    if(inv.invoiceNo === undefined || inv.invoiceNo === null) inv.invoiceNo = '';
+    if(!inv.date) inv.date = todayInputValue();
+    if(inv.supplierRef === undefined || inv.supplierRef === null) inv.supplierRef = '';
+    if(inv.expectedTotal === undefined) inv.expectedTotal = null;
+    if(!Array.isArray(inv.items) || inv.items.length === 0) inv.items = [emptyInvoiceItem()];
+  });
+}
+function invoiceLineTotal(item){
+  const qty = Number(item.qty), price = Number(item.priceWithTax);
+  if(item.qty === null || item.qty === undefined || item.qty === '' ||
+     item.priceWithTax === null || item.priceWithTax === undefined || item.priceWithTax === '' ||
+     isNaN(qty) || isNaN(price)) return 0;
+  return qty * price;
+}
+function invoiceUnitPriceExclTax(item){
+  const price = Number(item.priceWithTax);
+  if(item.priceWithTax === null || item.priceWithTax === undefined || item.priceWithTax === '' || isNaN(price)) return 0;
+  return price / (1 + INVOICE_TAX_RATE);
+}
+function invoiceComputeTotals(items){
+  let total = 0;
+  items.forEach(it => { total += invoiceLineTotal(it); });
+  const subtotal = total / (1 + INVOICE_TAX_RATE);
+  const tax = total - subtotal; // derived from Total, not the other way — keeps Subtotal + Tax === Total to the cent
+  return { total, subtotal, tax };
+}
+
+function renderInvoiceNameLists(){
+  const beerList = document.getElementById('invBeerStoreNamesList');
+  if(beerList){
+    beerList.innerHTML = BEER_STORE_NAMES.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+  const lcboList = document.getElementById('invLcboNamesList');
+  if(lcboList){
+    const names = Array.from(new Set(LIQUOR_ITEMS.map(it => liquorDisplayName(it.n)))).sort((a,b)=>a.localeCompare(b));
+    lcboList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+}
+
+function renderInvoiceCompanyBlock(){
+  ensureInvoicesState();
+  const c = state.invoices.company;
+  document.getElementById('invCompanyName').value = c.name;
+  document.getElementById('invCompanyAddress').value = c.address;
+  document.getElementById('invCompanyCityProvPostal').value = c.cityProvPostal;
+  document.getElementById('invCompanyPhone').value = c.phone;
+  document.getElementById('invCompanyEmail').value = c.email;
+  document.getElementById('invCompanyHst').value = c.hst;
+}
+[['invCompanyName','name'],['invCompanyAddress','address'],['invCompanyCityProvPostal','cityProvPostal'],
+ ['invCompanyPhone','phone'],['invCompanyEmail','email'],['invCompanyHst','hst']].forEach(([id,field])=>{
+  document.getElementById(id).addEventListener('input', e=>{
+    ensureInvoicesState();
+    state.invoices.company[field] = e.target.value;
+    saveData();
+  });
+});
+
+function invoiceMatchMsgHtml(totals, expected){
+  if(expected === null || expected === undefined || expected === '') return '';
+  const diff = Math.abs(Number(expected) - totals.total);
+  return diff < 0.01
+    ? `<span style="color:var(--green);font-weight:700;">&#10003; Coincide con el total de la factura real</span>`
+    : `<span style="color:var(--red);font-weight:700;">&#10007; Difiere por $${diff.toFixed(2)} del total de la factura real — revisa las cantidades y precios.</span>`;
+}
+
+function renderInvoiceContent(key){
+  ensureInvoicesState();
+  const inv = state.invoices[key];
+  const supplierLabel = INVOICE_SUPPLIER_LABEL[key];
+  const wrap = document.getElementById(key === 'lcbo' ? 'invLcboContent' : 'invBeerStoreContent');
+  const totals = invoiceComputeTotals(inv.items);
+
+  wrap.innerHTML = `
+    <div class="input-block">
+      <h3>${supplierLabel} — Datos de la factura</h3>
+      <div class="dual-input-row">
+        <div class="dual-input">
+          <label>N.° de factura (nuestra)</label>
+          <input type="text" class="text-field-input" id="${key}InvoiceNo" placeholder="ej. 001">
+        </div>
+        <div class="dual-input">
+          <label>Fecha</label>
+          <input type="date" class="text-field-input" id="${key}InvoiceDate">
+        </div>
+      </div>
+      <div class="dual-input-row" style="margin-top:12px;">
+        <div class="dual-input">
+          <label>N.° / referencia de la factura de ${supplierLabel}</label>
+          <input type="text" class="text-field-input" id="${key}SupplierRef" placeholder="N.° de la factura original">
+        </div>
+        <div class="dual-input">
+          <label>Total real de la factura (opcional)</label>
+          <input type="number" step="0.01" min="0" class="text-field-input" id="${key}ExpectedTotal" placeholder="0.00">
+        </div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Cerveza / Producto</th>
+          <th>Cant.</th>
+          <th>Precio c/tax</th>
+          <th>Precio unidad s/tax</th>
+          <th>Total línea</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="${key}InvBody"></tbody>
+    </table>
+    <div class="calc-actions">
+      <button type="button" class="btn-secondary" id="${key}InvAddBtn">+ Agregar producto</button>
+      <button type="button" class="btn-danger" id="${key}InvResetBtn">Reset</button>
+    </div>
+
+    <div class="results" id="${key}InvResults">
+      <h2>Resumen</h2>
+      <table>
+        <tbody>
+          <tr><td>Subtotal (sin tax)</td><td style="text-align:right;" id="${key}InvSubtotal">$${totals.subtotal.toFixed(2)}</td></tr>
+          <tr><td>HST (13%)</td><td style="text-align:right;" id="${key}InvTax">$${totals.tax.toFixed(2)}</td></tr>
+          <tr><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;" id="${key}InvTotal">$${totals.total.toFixed(2)}</td></tr>
+        </tbody>
+      </table>
+      <p class="inv-note" id="${key}InvMatchMsg">${invoiceMatchMsgHtml(totals, inv.expectedTotal)}</p>
+      <button type="button" class="btn-primary" id="${key}InvPdfBtn">Descargar factura en PDF</button>
+    </div>
+  `;
+
+  document.getElementById(`${key}InvoiceNo`).value = inv.invoiceNo;
+  document.getElementById(`${key}InvoiceDate`).value = inv.date;
+  document.getElementById(`${key}SupplierRef`).value = inv.supplierRef;
+  document.getElementById(`${key}ExpectedTotal`).value = (inv.expectedTotal === null || inv.expectedTotal === undefined) ? '' : inv.expectedTotal;
+
+  document.getElementById(`${key}InvoiceNo`).addEventListener('input', e=>{ inv.invoiceNo = e.target.value; saveData(); });
+  document.getElementById(`${key}InvoiceDate`).addEventListener('input', e=>{ inv.date = e.target.value; saveData(); });
+  document.getElementById(`${key}SupplierRef`).addEventListener('input', e=>{ inv.supplierRef = e.target.value; saveData(); });
+  document.getElementById(`${key}ExpectedTotal`).addEventListener('input', e=>{
+    inv.expectedTotal = e.target.value === '' ? null : Number(e.target.value);
+    saveData();
+    updateInvoiceSummary(key);
+  });
+
+  document.getElementById(`${key}InvAddBtn`).addEventListener('click', ()=>{
+    inv.items.push(emptyInvoiceItem());
+    saveData();
+    renderInvoiceItemsTable(key);
+  });
+  document.getElementById(`${key}InvResetBtn`).addEventListener('click', ()=>{
+    if(!confirm(`¿Borrar todos los productos de la factura de ${supplierLabel}? (Se mantienen los datos de la empresa y de la factura.)`)) return;
+    inv.items = [emptyInvoiceItem()];
+    inv.expectedTotal = null;
+    saveData();
+    renderInvoiceContent(key);
+  });
+  document.getElementById(`${key}InvPdfBtn`).addEventListener('click', ()=> generateInvoicePDF(key));
+
+  renderInvoiceItemsTable(key);
+}
+
+function renderInvoiceItemsTable(key){
+  const inv = state.invoices[key];
+  const namesListId = key === 'lcbo' ? 'invLcboNamesList' : 'invBeerStoreNamesList';
+  const body = document.getElementById(`${key}InvBody`);
+  body.innerHTML = '';
+  inv.items.forEach((item, i)=>{
+    const unitExcl = invoiceUnitPriceExclTax(item);
+    const lineTotal = invoiceLineTotal(item);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" list="${namesListId}" class="kw-input kw-name-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="name" value="${escapeHtml(item.name)}" placeholder="Nombre"></td>
+      <td><input type="number" step="1" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="qty" value="${item.qty ?? ''}" placeholder="0"></td>
+      <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="priceWithTax" value="${item.priceWithTax ?? ''}" placeholder="0.00"></td>
+      <td class="vol-ok" id="${key}-inv-unit-${i}">$${unitExcl.toFixed(2)}</td>
+      <td class="vol-ok" id="${key}-inv-linetotal-${i}">$${lineTotal.toFixed(2)}</td>
+      <td><button type="button" class="remove-open-btn inv-item-remove-btn" data-key="${key}" data-idx="${i}" title="Quitar">&times;</button></td>
+    `;
+    body.appendChild(tr);
+  });
+
+  body.querySelectorAll('.inv-item-input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const idx = Number(e.target.dataset.idx);
+      const field = e.target.dataset.field;
+      const item = state.invoices[key].items[idx];
+      if(field === 'name') item.name = e.target.value;
+      else item[field] = e.target.value === '' ? null : Number(e.target.value);
+      saveData();
+      const unitCell = document.getElementById(`${key}-inv-unit-${idx}`);
+      const lineCell = document.getElementById(`${key}-inv-linetotal-${idx}`);
+      if(unitCell) unitCell.textContent = `$${invoiceUnitPriceExclTax(item).toFixed(2)}`;
+      if(lineCell) lineCell.textContent = `$${invoiceLineTotal(item).toFixed(2)}`;
+      updateInvoiceSummary(key);
+    });
+  });
+
+  body.querySelectorAll('.inv-item-remove-btn').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      const idx = Number(e.target.dataset.idx);
+      const items = state.invoices[key].items;
+      items.splice(idx, 1);
+      if(items.length === 0) items.push(emptyInvoiceItem());
+      saveData();
+      renderInvoiceItemsTable(key);
+    });
+  });
+
+  updateInvoiceSummary(key);
+}
+
+function updateInvoiceSummary(key){
+  const inv = state.invoices[key];
+  const totals = invoiceComputeTotals(inv.items);
+  const subtotalEl = document.getElementById(`${key}InvSubtotal`);
+  const taxEl = document.getElementById(`${key}InvTax`);
+  const totalEl = document.getElementById(`${key}InvTotal`);
+  if(subtotalEl) subtotalEl.textContent = `$${totals.subtotal.toFixed(2)}`;
+  if(taxEl) taxEl.textContent = `$${totals.tax.toFixed(2)}`;
+  if(totalEl) totalEl.textContent = `$${totals.total.toFixed(2)}`;
+  const matchMsg = document.getElementById(`${key}InvMatchMsg`);
+  if(matchMsg) matchMsg.innerHTML = invoiceMatchMsgHtml(totals, inv.expectedTotal);
+}
+
+// Builds a lettered, branded PDF from state.invoices.company + state.invoices[key], showing the
+// tax-excl. unit price/line amount per item and a Subtotal/HST/Total summary. Total is computed
+// straight from the entered (qty × price-with-tax) values, so it always ties back to the real
+// supplier invoice total the numbers were copied from.
+function generateInvoicePDF(key){
+  ensureInvoicesState();
+  const inv = state.invoices[key];
+  const company = state.invoices.company;
+  const supplierLabel = INVOICE_SUPPLIER_LABEL[key];
+  const items = inv.items.filter(it => it.name && it.name.trim() && it.qty && it.priceWithTax);
+  if(!items.length){
+    alert('Agrega al menos un producto con nombre, cantidad y precio antes de generar el PDF.');
+    return;
+  }
+  if(!window.jspdf){
+    alert('No se pudo cargar la librería de PDF. Revisa tu conexión a internet e intenta de nuevo.');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const rightX = pageWidth - 14;
+
+  doc.setFillColor(181,101,29);
+  doc.rect(0, 0, pageWidth, 8, 'F');
+
+  doc.setTextColor(43,36,32);
+  doc.setFontSize(18);
+  doc.setFont(undefined, 'bold');
+  doc.text(company.name || 'QH Bar', 14, 24);
+
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'normal');
+  doc.setTextColor(122,111,99);
+  let y = 30;
+  const infoLines = [
+    company.address,
+    company.cityProvPostal,
+    [company.phone, company.email].filter(Boolean).join('   •   '),
+    company.hst ? `HST/Business #: ${company.hst}` : ''
+  ].filter(Boolean);
+  infoLines.forEach(line=>{ doc.text(line, 14, y); y += 5; });
+
+  doc.setTextColor(43,36,32);
+  doc.setFontSize(16);
+  doc.setFont(undefined, 'bold');
+  doc.text('INVOICE', rightX, 24, {align:'right'});
+  doc.setFontSize(9);
+  doc.setFont(undefined, 'normal');
+  let ry = 30;
+  const metaLines = [
+    `Supplier: ${supplierLabel}`,
+    `Invoice #: ${inv.invoiceNo || '—'}`,
+    `Date: ${inv.date || '—'}`,
+    inv.supplierRef ? `${supplierLabel} Ref #: ${inv.supplierRef}` : ''
+  ].filter(Boolean);
+  metaLines.forEach(line=>{ doc.text(line, rightX, ry, {align:'right'}); ry += 5; });
+
+  const startY = Math.max(y, ry) + 8;
+
+  const rows = items.map(it=>{
+    const qty = Number(it.qty);
+    const unitExcl = invoiceUnitPriceExclTax(it);
+    return [it.name, String(qty), `$${unitExcl.toFixed(2)}`, `$${(unitExcl*qty).toFixed(2)}`];
+  });
+
+  doc.autoTable({
+    startY,
+    head: [['Item','Qty','Unit Price (excl. tax)','Amount (excl. tax)']],
+    body: rows,
+    theme: 'grid',
+    headStyles: { fillColor:[181,101,29], textColor:255 },
+    styles: { fontSize:10, cellPadding:4 },
+    columnStyles: { 1:{halign:'right'}, 2:{halign:'right'}, 3:{halign:'right'} }
+  });
+
+  const totals = invoiceComputeTotals(items);
+  let fy = doc.lastAutoTable.finalY + 10;
+  doc.setTextColor(43,36,32);
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'normal');
+  doc.text('Subtotal:', 140, fy);
+  doc.text(`$${totals.subtotal.toFixed(2)}`, rightX, fy, {align:'right'});
+  fy += 6;
+  doc.text('HST (13%):', 140, fy);
+  doc.text(`$${totals.tax.toFixed(2)}`, rightX, fy, {align:'right'});
+  fy += 7;
+  doc.setDrawColor(229,221,209);
+  doc.line(140, fy - 4, rightX, fy - 4);
+  doc.setFont(undefined, 'bold');
+  doc.setFontSize(11);
+  doc.text('Total:', 140, fy);
+  doc.text(`$${totals.total.toFixed(2)}`, rightX, fy, {align:'right'});
+
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(122,111,99);
+  doc.text(
+    `Tax amounts recalculated from unit prices that already include 13% HST, as invoiced by ${supplierLabel}.`,
+    14, doc.internal.pageSize.getHeight() - 12
+  );
+
+  const safeDate = inv.date || todayInputValue();
+  doc.save(`invoice-${key === 'lcbo' ? 'LCBO' : 'BeerStore'}-${safeDate}.pdf`);
 }
 
 // ---------- Tabs ----------
@@ -4264,6 +4711,10 @@ renderKegGrid();
 renderBatchGrid();
 renderBatchBarGrid();
 renderLiquorInvGrid();
+renderInvoiceNameLists();
+renderInvoiceCompanyBlock();
+renderInvoiceContent('lcbo');
+renderInvoiceContent('beerStore');
 applyAllLocksUI(); // also does the initial (locked) render of Setup, Extra, and Inv Map
 </script>
 </body>
