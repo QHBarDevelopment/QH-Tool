@@ -2508,7 +2508,7 @@ function liquorHasInput(reading){
 const INVOICE_SUPPLIER_LABEL = { lcbo:'LCBO', beerStore:'The Beer Store' };
 
 function emptyInvoiceItem(){
-  return { name:'', qty:null, priceWithTax:null, bottleDeposit: INVOICE_DEFAULT_BOTTLE_DEPOSIT };
+  return { name:'', qty:null, priceWithTax:null, bottleDeposit: INVOICE_DEFAULT_BOTTLE_DEPOSIT, sizeMl:null };
 }
 function todayInputValue(){
   const d = new Date();
@@ -2537,9 +2537,10 @@ function ensureInvoicesState(){
     // rate (13%) was confirmed — bump anyone still sitting on that old default back up to 13%.
     if(inv.taxRatePct === 11.5) inv.taxRatePct = INVOICE_DEFAULT_TAX_RATE_PCT;
     if(!Array.isArray(inv.items) || inv.items.length === 0) inv.items = [emptyInvoiceItem()];
-    // Migrate any item saved before the bottle deposit field existed.
+    // Migrate any item saved before the bottle deposit / size fields existed.
     inv.items.forEach(it=>{
       if(it.bottleDeposit === undefined || it.bottleDeposit === null) it.bottleDeposit = INVOICE_DEFAULT_BOTTLE_DEPOSIT;
+      if(it.sizeMl === undefined) it.sizeMl = null;
     });
   });
 }
@@ -2744,6 +2745,7 @@ function renderInvoiceContent(key){
       <thead>
         <tr>
           <th>Item</th>
+          <th>Size (mL)</th>
           <th>Qty</th>
           <th>Price (tax incl.)</th>
           <th>Deposit /u</th>
@@ -2861,7 +2863,8 @@ async function parseLcboInvoicePdf(file){
       name: m[1].trim(),
       qty: parseInt(m[5], 10), // Quantity Fulfilled — what was actually charged
       priceWithTax: parseFloat(m[6]),
-      bottleDeposit: parseFloat(m[7])
+      bottleDeposit: parseFloat(m[7]),
+      sizeMl: m[8] ? parseInt(m[8], 10) : null
     });
   }
   if(!items.length){
@@ -2896,7 +2899,7 @@ async function handleInvoicePdfUpload(key, file){
       return;
     }
     const parsed = await parseLcboInvoicePdf(file);
-    inv.items = parsed.items.map(p => ({ name: p.name, qty: p.qty, priceWithTax: p.priceWithTax, bottleDeposit: p.bottleDeposit }));
+    inv.items = parsed.items.map(p => ({ name: p.name, qty: p.qty, priceWithTax: p.priceWithTax, bottleDeposit: p.bottleDeposit, sizeMl: p.sizeMl }));
     if(parsed.date) inv.date = parsed.date;
     if(parsed.supplierRef) inv.supplierRef = parsed.supplierRef;
     if(parsed.expectedTotal !== null) inv.expectedTotal = parsed.expectedTotal;
@@ -2924,6 +2927,7 @@ function renderInvoiceItemsTable(key){
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><input type="text" list="${namesListId}" class="kw-input kw-name-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="name" value="${escapeHtml(item.name)}" placeholder="Item name"></td>
+      <td><input type="number" step="1" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="sizeMl" value="${item.sizeMl ?? ''}" placeholder="750"></td>
       <td><input type="number" step="1" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="qty" value="${item.qty ?? ''}" placeholder="0"></td>
       <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="priceWithTax" value="${item.priceWithTax ?? ''}" placeholder="0.00"></td>
       <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="bottleDeposit" value="${item.bottleDeposit ?? ''}" placeholder="0.20"></td>
@@ -2986,8 +2990,8 @@ function updateInvoiceSummary(key){
 // Returns the y position right after the table so the summary block can start below it.
 function drawInvoiceTable(doc, startY, head, rows){
   const left = 14;
-  const colWidths = [66, 18, 32, 26, 32]; // sums to 174 -> right edge lands at 14+174=188, inside the 196 margin
-  const colAligns = ['left','right','right','right','right'];
+  const colWidths = [54, 18, 16, 30, 24, 32]; // sums to 174 -> right edge lands at 14+174=188, inside the 196 margin
+  const colAligns = ['left','right','right','right','right','right'];
   const tableWidth = colWidths.reduce((a,b)=>a+b,0);
   const rowHeight = 9;
   const pageBottom = doc.internal.pageSize.getHeight() - 34;
@@ -3146,6 +3150,7 @@ function generateInvoicePDF(key){
       // rounding them back up.
       return [
         it.name,
+        (it.sizeMl === null || it.sizeMl === undefined || it.sizeMl === '') ? '—' : String(it.sizeMl),
         String(qty),
         `$${unitExcl.toFixed(2)}`,
         `$${depositUnit.toFixed(2)}`,
@@ -3153,7 +3158,7 @@ function generateInvoicePDF(key){
       ];
     });
 
-    const tableEndY = drawInvoiceTable(doc, startY, ['Item','Qty','Unit Price','Deposit','Amount'], rows);
+    const tableEndY = drawInvoiceTable(doc, startY, ['Item','Size','Qty','Unit Price','Deposit','Amount'], rows);
 
     const totals = invoiceComputeTotals(items, inv.taxRatePct);
     let fy = tableEndY + 10;
