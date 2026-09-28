@@ -628,41 +628,10 @@
     </section>
 
     <section id="invoices" class="view">
-      <div class="input-block" id="invCompanyBlock">
-        <h3>Company Letterhead</h3>
-        <p class="inputs-hint">Ya viene con los datos de Queens Harbour Restaurant por defecto — cámbialos aquí solo si algo cambia. Se usan en cada factura PDF generada abajo (LCBO y Beer Store).</p>
-        <img src="" id="invCompanyLogoPreview" alt="Queens Harbour Restaurant" style="max-width:220px;display:block;margin:0 0 16px;">
-        <div class="name-field">
-          <label>Business Name</label>
-          <input type="text" class="text-field-input" id="invCompanyName" placeholder="Queens Harbour Restaurant">
-        </div>
-        <div class="name-field">
-          <label>Address</label>
-          <input type="text" class="text-field-input" id="invCompanyAddress" placeholder="245 Queens Quay West">
-        </div>
-        <div class="name-field">
-          <label>City, Province, Postal Code</label>
-          <input type="text" class="text-field-input" id="invCompanyCityProvPostal" placeholder="Toronto, Ontario">
-        </div>
-        <div class="dual-input-row">
-          <div class="dual-input">
-            <label>Phone</label>
-            <input type="text" class="text-field-input" id="invCompanyPhone" placeholder="(416) 572-4300">
-          </div>
-          <div class="dual-input">
-            <label>Email</label>
-            <input type="text" class="text-field-input" id="invCompanyEmail" placeholder="beverages@queensharbour.ca">
-          </div>
-        </div>
-        <div class="name-field" style="margin-bottom:0;">
-          <label>HST / Business Number</label>
-          <input type="text" class="text-field-input" id="invCompanyHst" placeholder="123456789 RT0001">
-        </div>
-      </div>
-
       <nav class="subtabs">
         <button class="subtab active" data-subtab="invLcbo">LCBO</button>
         <button class="subtab" data-subtab="invBeerStore">Beer Store</button>
+        <button class="subtab" data-subtab="invMembrete">Membrete</button>
       </nav>
 
       <section id="invLcbo" class="subview active">
@@ -671,6 +640,40 @@
 
       <section id="invBeerStore" class="subview">
         <div id="invBeerStoreContent"></div>
+      </section>
+
+      <section id="invMembrete" class="subview">
+        <div class="input-block" id="invCompanyBlock">
+          <h3>Company Letterhead</h3>
+          <p class="inputs-hint">Ya viene con los datos de Queens Harbour Restaurant por defecto — solo entra aquí si algo cambia (dirección, teléfono, etc). No afecta el resto de la app.</p>
+          <img src="" id="invCompanyLogoPreview" alt="Queens Harbour Restaurant" style="max-width:220px;display:block;margin:0 0 16px;">
+          <div class="name-field">
+            <label>Business Name</label>
+            <input type="text" class="text-field-input" id="invCompanyName" placeholder="Queens Harbour Restaurant">
+          </div>
+          <div class="name-field">
+            <label>Address</label>
+            <input type="text" class="text-field-input" id="invCompanyAddress" placeholder="245 Queens Quay West">
+          </div>
+          <div class="name-field">
+            <label>City, Province, Postal Code</label>
+            <input type="text" class="text-field-input" id="invCompanyCityProvPostal" placeholder="Toronto, Ontario">
+          </div>
+          <div class="dual-input-row">
+            <div class="dual-input">
+              <label>Phone</label>
+              <input type="text" class="text-field-input" id="invCompanyPhone" placeholder="(416) 572-4300">
+            </div>
+            <div class="dual-input">
+              <label>Email</label>
+              <input type="text" class="text-field-input" id="invCompanyEmail" placeholder="beverages@queensharbour.ca">
+            </div>
+          </div>
+          <div class="name-field" style="margin-bottom:0;">
+            <label>HST / Business Number</label>
+            <input type="text" class="text-field-input" id="invCompanyHst" placeholder="123456789 RT0001">
+          </div>
+        </div>
       </section>
 
       <datalist id="invLcboNamesList"></datalist>
@@ -785,9 +788,11 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf-autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" onerror="window.__jspdfLoadFailed=true;"></script>
 <script>
+// The item table in the invoice PDF is drawn by hand with core jsPDF calls (see drawInvoiceTable
+// below) instead of the jspdf-autotable plugin — one less external script that has to load
+// successfully for "Descargar factura en PDF" to work.
 const INITIAL_NUM_KEGS = 14;
 const INITIAL_NUM_BATCHES = 20;
 const INITIAL_NUM_BATCH_BARS = 10;
@@ -2773,127 +2778,205 @@ function updateInvoiceSummary(key){
   if(matchMsg) matchMsg.innerHTML = invoiceMatchMsgHtml(totals, inv.expectedTotal);
 }
 
+// Draws the item table by hand with core jsPDF calls (rects + lines + text) instead of the
+// jspdf-autotable plugin, so the whole PDF only depends on ONE external script (jsPDF itself).
+// Returns the y position right after the table so the summary block can start below it.
+function drawInvoiceTable(doc, startY, head, rows){
+  const left = 14;
+  const colWidths = [66, 18, 32, 26, 32]; // sums to 174 -> right edge lands at 14+174=188, inside the 196 margin
+  const colAligns = ['left','right','right','right','right'];
+  const tableWidth = colWidths.reduce((a,b)=>a+b,0);
+  const rowHeight = 9;
+  const pageBottom = doc.internal.pageSize.getHeight() - 34;
+  let y = startY;
+
+  function drawHeader(){
+    doc.setFillColor(181,101,29);
+    doc.setTextColor(255,255,255);
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(9);
+    doc.rect(left, y, tableWidth, rowHeight, 'F');
+    let x = left;
+    head.forEach((h,i)=>{
+      const w = colWidths[i];
+      const align = colAligns[i];
+      if(align === 'right') doc.text(String(h), x + w - 3, y + rowHeight/2 + 1.5, {align:'right'});
+      else doc.text(String(h), x + 3, y + rowHeight/2 + 1.5);
+      x += w;
+    });
+    y += rowHeight;
+  }
+
+  drawHeader();
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(9);
+  doc.setDrawColor(229,221,209);
+
+  const tableTop = startY;
+  rows.forEach((row, rIdx)=>{
+    if(y + rowHeight > pageBottom){
+      // Close out the current page's table border before starting a new page.
+      doc.rect(left, tableTop === startY ? startY : tableTop, tableWidth, y - (tableTop === startY ? startY : tableTop));
+      doc.addPage();
+      y = 20;
+      drawHeader();
+    }
+    if(rIdx % 2 === 1){
+      doc.setFillColor(250,247,242);
+      doc.rect(left, y, tableWidth, rowHeight, 'F');
+    }
+    doc.setTextColor(43,36,32);
+    let x = left;
+    row.forEach((cell,i)=>{
+      const w = colWidths[i];
+      const align = colAligns[i];
+      let text = String(cell);
+      if(i === 0){
+        // Truncate a long item name with an ellipsis rather than overflow into the Qty column.
+        const maxW = w - 6;
+        if(doc.getTextWidth(text) > maxW){
+          while(text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+          text += '…';
+        }
+      }
+      if(align === 'right') doc.text(text, x + w - 3, y + rowHeight/2 + 1.5, {align:'right'});
+      else doc.text(text, x + 3, y + rowHeight/2 + 1.5);
+      x += w;
+    });
+    y += rowHeight;
+  });
+
+  // Outer border + column separators for the last page of the table.
+  doc.setDrawColor(200,190,177);
+  doc.rect(left, tableTop, tableWidth, y - tableTop);
+  let xsep = left;
+  colWidths.forEach((w,i)=>{
+    xsep += w;
+    if(i < colWidths.length - 1) doc.line(xsep, tableTop, xsep, y);
+  });
+
+  return y;
+}
+
 // Builds a lettered, branded PDF from state.invoices.company + state.invoices[key]: the Queens
 // Harbour logo, itemized tax-excl. unit prices with the bottle deposit broken out separately (the
 // deposit is never taxed), and a Subtotal/Deposit/Tax/Total summary. Total is computed straight from
 // the entered (qty × price-with-tax) + (qty × deposit) values, so it always ties back to the real
 // supplier invoice total the numbers were copied from. The downloaded file is named
-// "<day><month>invoice.pdf" from the invoice date, e.g. 2809invoice.pdf.
+// "<day><month>invoice.pdf" from the invoice date, e.g. 2809invoice.pdf. The whole thing is wrapped
+// in try/catch so any failure shows a real error message instead of the button silently doing nothing.
 function generateInvoicePDF(key){
-  ensureInvoicesState();
-  const inv = state.invoices[key];
-  const company = state.invoices.company;
-  const supplierLabel = INVOICE_SUPPLIER_LABEL[key];
-  const items = inv.items.filter(it => it.name && it.name.trim() && invoiceHasQtyAndPrice(it));
-  if(!items.length){
-    alert('Agrega al menos un producto con nombre, cantidad y precio antes de generar el PDF.');
-    return;
-  }
-  if(!window.jspdf){
-    alert('No se pudo cargar la librería de PDF. Revisa tu conexión a internet e intenta de nuevo.');
-    return;
-  }
-
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const rightX = pageWidth - 14;
-
-  doc.setFillColor(181,101,29);
-  doc.rect(0, 0, pageWidth, 8, 'F');
-
-  // Logo (top-left) — the Queens Harbour Restaurant wordmark, already carries the business name.
-  const logoWidth = 55;
-  const logoHeight = logoWidth * INVOICE_LOGO_ASPECT;
   try{
-    doc.addImage(INVOICE_LOGO_DATA_URL, 'JPEG', 14, 14, logoWidth, logoHeight);
-  }catch(e){ /* if the embedded logo ever fails to decode, the rest of the invoice still renders */ }
+    ensureInvoicesState();
+    const inv = state.invoices[key];
+    const company = state.invoices.company;
+    const supplierLabel = INVOICE_SUPPLIER_LABEL[key];
+    const items = inv.items.filter(it => it.name && it.name.trim() && invoiceHasQtyAndPrice(it));
+    if(!items.length){
+      alert('Agrega al menos un producto con nombre, cantidad y precio antes de generar el PDF.');
+      return;
+    }
+    if(window.__jspdfLoadFailed || !window.jspdf || !window.jspdf.jsPDF){
+      alert('No se pudo cargar la librería de PDF (jsPDF) desde internet. Revisa tu conexión y recarga la página, luego intenta de nuevo.');
+      return;
+    }
 
-  doc.setTextColor(122,111,99);
-  doc.setFontSize(9);
-  doc.setFont(undefined, 'normal');
-  let y = 14 + logoHeight + 6;
-  const infoLines = [
-    company.address,
-    company.cityProvPostal,
-    [company.phone, company.email].filter(Boolean).join('   •   '),
-    company.hst ? `HST/Business #: ${company.hst}` : ''
-  ].filter(Boolean);
-  infoLines.forEach(line=>{ doc.text(line, 14, y); y += 5; });
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const rightX = pageWidth - 14;
 
-  doc.setTextColor(43,36,32);
-  doc.setFontSize(16);
-  doc.setFont(undefined, 'bold');
-  doc.text('INVOICE', rightX, 24, {align:'right'});
-  doc.setFontSize(9);
-  doc.setFont(undefined, 'normal');
-  let ry = 30;
-  const metaLines = [
-    `Supplier: ${supplierLabel}`,
-    `Invoice #: ${inv.invoiceNo || '—'}`,
-    `Date: ${inv.date || '—'}`,
-    inv.supplierRef ? `${supplierLabel} Ref #: ${inv.supplierRef}` : ''
-  ].filter(Boolean);
-  metaLines.forEach(line=>{ doc.text(line, rightX, ry, {align:'right'}); ry += 5; });
+    doc.setFillColor(181,101,29);
+    doc.rect(0, 0, pageWidth, 8, 'F');
 
-  const startY = Math.max(y, ry) + 8;
+    // Logo (top-left) — the Queens Harbour Restaurant wordmark, already carries the business name.
+    const logoWidth = 55;
+    const logoHeight = logoWidth * INVOICE_LOGO_ASPECT;
+    try{
+      doc.addImage(INVOICE_LOGO_DATA_URL, 'JPEG', 14, 14, logoWidth, logoHeight);
+    }catch(e){ /* if the embedded logo ever fails to decode, the rest of the invoice still renders */ }
 
-  const rows = items.map(it=>{
-    const qty = Number(it.qty);
-    const unitExcl = invoiceUnitPriceExclTax(it, inv.taxRatePct);
-    const depositUnit = invoiceDepositPerUnit(it);
-    return [
-      it.name,
-      String(qty),
-      `$${unitExcl.toFixed(2)}`,
-      `$${depositUnit.toFixed(2)}`,
-      `$${(unitExcl*qty + depositUnit*qty).toFixed(2)}`
-    ];
-  });
+    doc.setTextColor(122,111,99);
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    let y = 14 + logoHeight + 6;
+    const infoLines = [
+      company.address,
+      company.cityProvPostal,
+      [company.phone, company.email].filter(Boolean).join('   •   '),
+      company.hst ? `HST/Business #: ${company.hst}` : ''
+    ].filter(Boolean);
+    infoLines.forEach(line=>{ doc.text(line, 14, y); y += 5; });
 
-  doc.autoTable({
-    startY,
-    head: [['Item','Qty','Unit Price (excl. tax)','Deposit /u','Amount']],
-    body: rows,
-    theme: 'grid',
-    headStyles: { fillColor:[181,101,29], textColor:255 },
-    styles: { fontSize:10, cellPadding:4 },
-    columnStyles: { 1:{halign:'right'}, 2:{halign:'right'}, 3:{halign:'right'}, 4:{halign:'right'} }
-  });
+    doc.setTextColor(43,36,32);
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('INVOICE', rightX, 24, {align:'right'});
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    let ry = 30;
+    const metaLines = [
+      `Supplier: ${supplierLabel}`,
+      `Invoice #: ${inv.invoiceNo || '—'}`,
+      `Date: ${inv.date || '—'}`,
+      inv.supplierRef ? `${supplierLabel} Ref #: ${inv.supplierRef}` : ''
+    ].filter(Boolean);
+    metaLines.forEach(line=>{ doc.text(line, rightX, ry, {align:'right'}); ry += 5; });
 
-  const totals = invoiceComputeTotals(items, inv.taxRatePct);
-  let fy = doc.lastAutoTable.finalY + 10;
-  doc.setTextColor(43,36,32);
-  doc.setFontSize(10);
-  doc.setFont(undefined, 'normal');
-  doc.text('Subtotal:', 140, fy);
-  doc.text(`$${totals.productSubtotal.toFixed(2)}`, rightX, fy, {align:'right'});
-  fy += 6;
-  doc.text('Bottle Deposit:', 140, fy);
-  doc.text(`$${totals.deposit.toFixed(2)}`, rightX, fy, {align:'right'});
-  fy += 6;
-  doc.text(`Tax (${Number(inv.taxRatePct).toFixed(1)}%):`, 140, fy);
-  doc.text(`$${totals.tax.toFixed(2)}`, rightX, fy, {align:'right'});
-  fy += 7;
-  doc.setDrawColor(229,221,209);
-  doc.line(140, fy - 4, rightX, fy - 4);
-  doc.setFont(undefined, 'bold');
-  doc.setFontSize(11);
-  doc.text('Total:', 140, fy);
-  doc.text(`$${totals.total.toFixed(2)}`, rightX, fy, {align:'right'});
+    const startY = Math.max(y, ry) + 8;
 
-  doc.setFont(undefined, 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(122,111,99);
-  doc.text(
-    `Tax recalculated at ${Number(inv.taxRatePct).toFixed(1)}% from unit prices that already include tax, as invoiced by ${supplierLabel}. Bottle deposit is not taxed.`,
-    14, doc.internal.pageSize.getHeight() - 12
-  );
+    const rows = items.map(it=>{
+      const qty = Number(it.qty);
+      const unitExcl = invoiceUnitPriceExclTax(it, inv.taxRatePct);
+      const depositUnit = invoiceDepositPerUnit(it);
+      return [
+        it.name,
+        String(qty),
+        `$${unitExcl.toFixed(2)}`,
+        `$${depositUnit.toFixed(2)}`,
+        `$${(unitExcl*qty + depositUnit*qty).toFixed(2)}`
+      ];
+    });
 
-  const refDate = inv.date ? new Date(inv.date + 'T00:00:00') : new Date();
-  const dd = String(refDate.getDate()).padStart(2,'0');
-  const mm = String(refDate.getMonth()+1).padStart(2,'0');
-  doc.save(`${dd}${mm}invoice.pdf`);
+    const tableEndY = drawInvoiceTable(doc, startY, ['Item','Qty','Unit Price','Deposit','Amount'], rows);
+
+    const totals = invoiceComputeTotals(items, inv.taxRatePct);
+    let fy = tableEndY + 10;
+    doc.setTextColor(43,36,32);
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.text('Subtotal:', 140, fy);
+    doc.text(`$${totals.productSubtotal.toFixed(2)}`, rightX, fy, {align:'right'});
+    fy += 6;
+    doc.text('Bottle Deposit:', 140, fy);
+    doc.text(`$${totals.deposit.toFixed(2)}`, rightX, fy, {align:'right'});
+    fy += 6;
+    doc.text(`Tax (${Number(inv.taxRatePct).toFixed(1)}%):`, 140, fy);
+    doc.text(`$${totals.tax.toFixed(2)}`, rightX, fy, {align:'right'});
+    fy += 7;
+    doc.setDrawColor(229,221,209);
+    doc.line(140, fy - 4, rightX, fy - 4);
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(11);
+    doc.text('Total:', 140, fy);
+    doc.text(`$${totals.total.toFixed(2)}`, rightX, fy, {align:'right'});
+
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(122,111,99);
+    doc.text(
+      `Tax recalculated at ${Number(inv.taxRatePct).toFixed(1)}% from unit prices that already include tax, as invoiced by ${supplierLabel}. Bottle deposit is not taxed.`,
+      14, doc.internal.pageSize.getHeight() - 12
+    );
+
+    const refDate = inv.date ? new Date(inv.date + 'T00:00:00') : new Date();
+    const dd = String(refDate.getDate()).padStart(2,'0');
+    const mm = String(refDate.getMonth()+1).padStart(2,'0');
+    doc.save(`${dd}${mm}invoice.pdf`);
+  }catch(err){
+    console.error('generateInvoicePDF failed:', err);
+    alert('No se pudo generar el PDF: ' + (err && err.message ? err.message : err) + '\n\nAbre la consola del navegador (F12 o Cmd+Opt+I) para más detalle si esto se repite.');
+  }
 }
 
 // ---------- Tabs ----------
