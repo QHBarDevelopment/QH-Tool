@@ -2543,11 +2543,15 @@ function ensureInvoicesState(){
     if(inv.deliveryFee === undefined) inv.deliveryFee = null;
     if(inv.fuelCharge === undefined) inv.fuelCharge = null;
     if(!Array.isArray(inv.items) || inv.items.length === 0) inv.items = [emptyInvoiceItem(key)];
-    // Migrate any item saved before the bottle deposit / size fields existed. Only LCBO gets the
-    // $0.20 default backfilled — Beer Store deposits vary too much by package type to guess.
+    // Migrate any item saved before the bottle deposit / size fields existed, and keep Beer
+    // Store's deposit in sync with its flat by-size rate ($50 for 58.6L kegs, $20 for 19L kegs,
+    // $2.40 for 330mL bottle cases) — it's derived from Size (mL) rather than typed in, so it's
+    // recomputed here every time in case the size was edited or the item was loaded from an older
+    // save.
     inv.items.forEach(it=>{
-      if(it.bottleDeposit === undefined) it.bottleDeposit = (key === 'beerStore' ? null : INVOICE_DEFAULT_BOTTLE_DEPOSIT);
       if(it.sizeMl === undefined) it.sizeMl = null;
+      if(key === 'beerStore') it.bottleDeposit = beerStoreDepositForSizeMl(it.sizeMl);
+      else if(it.bottleDeposit === undefined) it.bottleDeposit = INVOICE_DEFAULT_BOTTLE_DEPOSIT;
     });
   });
 }
@@ -2562,6 +2566,29 @@ function invoiceUnitPriceExclTax(item, taxRatePct){
   const rate = Number(taxRatePct) / 100;
   const alcoholInclTax = price - invoiceDepositPerUnit(item);
   return alcoholInclTax / (1 + rate);
+}
+// Beer Store keg deposit is a flat rate by keg size, not something typed in per line: 58.6L kegs
+// are $50, 19L kegs are $20. Tolerant of the exact mL value (58600/19000) or someone typing the
+// size in litres by habit (58.6/19) — anything else (a bottle, an odd size) is left at $0 since
+// there's no rate for it.
+const BEER_STORE_DEPOSIT_RATES_BY_SIZE_ML = [
+  { ml: 58600, tolerance: 100, deposit: 50 },  // 58.6L keg
+  { ml: 19000, tolerance: 100, deposit: 20 },  // 19L keg
+  { ml: 330, tolerance: 5, deposit: 2.40 },    // 330mL bottle case
+];
+function beerStoreDepositForSizeMl(sizeMl){
+  if(sizeMl === null || sizeMl === undefined || sizeMl === '' || isNaN(Number(sizeMl))) return 0;
+  const raw = Number(sizeMl);
+  for(const rate of BEER_STORE_DEPOSIT_RATES_BY_SIZE_ML){
+    if(Math.abs(raw - rate.ml) <= rate.tolerance) return rate.deposit;
+  }
+  // Also accept a keg size typed in litres by habit (58.6 / 19) — a bottle case is never typed
+  // in litres, so this fallback only checks the litre-scale (keg) rates.
+  const asLiters = raw * 1000;
+  for(const rate of BEER_STORE_DEPOSIT_RATES_BY_SIZE_ML){
+    if(rate.ml >= 1000 && Math.abs(asLiters - rate.ml) <= rate.tolerance) return rate.deposit;
+  }
+  return 0;
 }
 function invoiceDepositPerUnit(item){
   const d = Number(item.bottleDeposit);
@@ -3032,13 +3059,13 @@ function parseBeerStoreItemsFromLines(lines){
     // reconstructed row and won't match this pattern (no leading numeric code columns), but be
     // defensive anyway: skip anything that isn't a real product description.
     if(!name || /^(Subtotal|Order Total|Fees|Delivery|FuelCharge|Total)/i.test(name)) return;
+    const sizeMl = parseSizeMlFromDescription(name);
     items.push({
       name,
       qty: parseInt(m[3], 10), // Quantity Shipped — what was actually charged
       priceWithTax: parseFloat(m[4]),
-      bottleDeposit: null, // The Beer Store only reports deposit in aggregate by package type
-                            // (Bottles/Kegs), not per line — left for the user to fill in if known.
-      sizeMl: parseSizeMlFromDescription(name)
+      bottleDeposit: beerStoreDepositForSizeMl(sizeMl), // derived from size: $50/58.6L keg, $20/19L keg, $2.40/330mL bottle case
+      sizeMl
     });
   });
   return items;
@@ -3115,8 +3142,17 @@ async function handleInvoicePdfUpload(key, file){
     const msgEl2 = document.getElementById(`${key}InvPdfUploadMsg`);
     if(msgEl2){
       let msg = `Loaded ${parsed.items.length} item${parsed.items.length === 1 ? '' : 's'} from the PDF.`;
-      if(key === 'beerStore' && (parsed.reportedDeposit !== null || parsed.reportedTax !== null)){
-        msg += ` The invoice itself reports Deposit ${parsed.reportedDeposit !== null ? '$'+parsed.reportedDeposit.toFixed(2) : '—'} and Tax ${parsed.reportedTax !== null ? '$'+parsed.reportedTax.toFixed(2) : '—'} in aggregate (not per item) — fill in each line's Deposit /u if you want that exact split reflected below; the Total will match either way.`;
+      // Sanity-check the auto-computed keg deposits ($50/58.6L, $20/19L) against what the invoice
+      // itself reports in aggregate — if they don't line up, something on this invoice doesn't fit
+      // the standard sizes (an unusual keg, a bottle line, etc.) and is worth a second look.
+      if(key === 'beerStore' && parsed.reportedDeposit !== null){
+        const computedDeposit = inv.items.reduce((sum, it) => sum + (Number(it.qty) || 0) * invoiceDepositPerUnit(it), 0);
+        const diff = Math.abs(computedDeposit - parsed.reportedDeposit);
+        if(diff < 0.01){
+          msg += ` Deposit total verified: $${computedDeposit.toFixed(2)} matches what the invoice reports.`;
+        } else {
+          msg += ` Heads up: the $50/58.6L keg, $20/19L keg, $2.40/330mL bottle case rule gives $${computedDeposit.toFixed(2)} in deposit, but the invoice reports $${parsed.reportedDeposit.toFixed(2)} — check for a size the rule doesn't cover.`;
+        }
       }
       msgEl2.textContent = msg;
       msgEl2.style.color = 'var(--green)';
@@ -3135,13 +3171,18 @@ function renderInvoiceItemsTable(key){
   inv.items.forEach((item, i)=>{
     const unitExcl = invoiceUnitPriceExclTax(item, inv.taxRatePct);
     const lineTotal = invoiceLineTotal(item);
+    const depositCell = key === 'lcbo'
+      ? `<input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="bottleDeposit" value="${item.bottleDeposit ?? ''}" placeholder="0.20">`
+      // Beer Store: not editable — derived automatically from Size (mL): $50 for a 58.6L keg,
+      // $20 for a 19L keg, $2.40 for a 330mL bottle case, $0 for anything else.
+      : `<span id="${key}-inv-deposit-${i}">$${invoiceDepositPerUnit(item).toFixed(2)}</span>`;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><input type="text" list="${namesListId}" class="kw-input kw-name-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="name" value="${escapeHtml(item.name)}" placeholder="Item name"></td>
       <td><input type="number" step="1" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="sizeMl" value="${item.sizeMl ?? ''}" placeholder="750"></td>
       <td><input type="number" step="1" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="qty" value="${item.qty ?? ''}" placeholder="0"></td>
       <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="priceWithTax" value="${item.priceWithTax ?? ''}" placeholder="0.00"></td>
-      <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="bottleDeposit" value="${item.bottleDeposit ?? ''}" placeholder="${key === 'lcbo' ? '0.20' : '0.00'}"></td>
+      <td class="vol-ok">${depositCell}</td>
       <td class="vol-ok" id="${key}-inv-unit-${i}">$${unitExcl.toFixed(2)}</td>
       <td class="vol-ok" id="${key}-inv-linetotal-${i}">$${lineTotal.toFixed(2)}</td>
       <td><button type="button" class="remove-open-btn inv-item-remove-btn" data-key="${key}" data-idx="${i}" title="Remove">&times;</button></td>
@@ -3156,6 +3197,13 @@ function renderInvoiceItemsTable(key){
       const item = state.invoices[key].items[idx];
       if(field === 'name') item.name = e.target.value;
       else item[field] = e.target.value === '' ? null : Number(e.target.value);
+      // Beer Store's deposit is derived from Size (mL), not typed in — keep it in sync whenever
+      // the size changes.
+      if(key === 'beerStore' && field === 'sizeMl'){
+        item.bottleDeposit = beerStoreDepositForSizeMl(item.sizeMl);
+        const depositCell = document.getElementById(`${key}-inv-deposit-${idx}`);
+        if(depositCell) depositCell.textContent = `$${invoiceDepositPerUnit(item).toFixed(2)}`;
+      }
       saveData();
       const unitCell = document.getElementById(`${key}-inv-unit-${idx}`);
       const lineCell = document.getElementById(`${key}-inv-linetotal-${idx}`);
