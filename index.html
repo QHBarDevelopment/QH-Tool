@@ -631,7 +631,7 @@
       <nav class="subtabs">
         <button class="subtab active" data-subtab="invLcbo">LCBO</button>
         <button class="subtab" data-subtab="invBeerStore">Beer Store</button>
-        <button class="subtab" data-subtab="invMembrete">Membrete</button>
+        <button class="subtab" data-subtab="invSetup">SETUP</button>
       </nav>
 
       <section id="invLcbo" class="subview active">
@@ -642,36 +642,57 @@
         <div id="invBeerStoreContent"></div>
       </section>
 
-      <section id="invMembrete" class="subview">
-        <div class="input-block" id="invCompanyBlock">
-          <h3>Company Letterhead</h3>
-          <p class="inputs-hint">Ya viene con los datos de Queens Harbour Restaurant por defecto — solo entra aquí si algo cambia (dirección, teléfono, etc). No afecta el resto de la app.</p>
-          <img src="" id="invCompanyLogoPreview" alt="Queens Harbour Restaurant" style="max-width:220px;display:block;margin:0 0 16px;">
-          <div class="name-field">
-            <label>Business Name</label>
-            <input type="text" class="text-field-input" id="invCompanyName" placeholder="Queens Harbour Restaurant">
-          </div>
-          <div class="name-field">
-            <label>Address</label>
-            <input type="text" class="text-field-input" id="invCompanyAddress" placeholder="245 Queens Quay West">
-          </div>
-          <div class="name-field">
-            <label>City, Province, Postal Code</label>
-            <input type="text" class="text-field-input" id="invCompanyCityProvPostal" placeholder="Toronto, Ontario">
-          </div>
-          <div class="dual-input-row">
-            <div class="dual-input">
-              <label>Phone</label>
-              <input type="text" class="text-field-input" id="invCompanyPhone" placeholder="(416) 572-4300">
+      <section id="invSetup" class="subview">
+        <div class="admin-lock" id="invSetupLockBar">
+          <span id="invSetupLockIcon">🔒</span>
+          <span class="lock-text" id="invSetupLockText">Setup is locked — enter the code to view it.</span>
+          <input type="password" id="invSetupCodeInput" class="admin-code-input" placeholder="Code" inputmode="numeric">
+          <button id="invSetupUnlockBtn" class="btn-secondary">Unlock</button>
+          <button id="invSetupLockBtn" class="btn-secondary hidden">Lock</button>
+          <span class="save-msg" id="invSetupLockMsg"></span>
+        </div>
+        <div id="invSetupGatedContent" class="hidden">
+          <div class="input-block" id="invCompanyBlock">
+            <h3>Company Letterhead</h3>
+            <p class="inputs-hint">Comes pre-filled with Queens Harbour Restaurant's details by default — only edit this if something changes (address, phone, etc). Doesn't affect the rest of the app.</p>
+            <img src="" id="invCompanyLogoPreview" alt="Queens Harbour Restaurant" style="max-width:220px;display:block;margin:0 0 16px;">
+            <div class="name-field">
+              <label>Business Name</label>
+              <input type="text" class="text-field-input" id="invCompanyName" placeholder="Queens Harbour Restaurant">
             </div>
-            <div class="dual-input">
-              <label>Email</label>
-              <input type="text" class="text-field-input" id="invCompanyEmail" placeholder="beverages@queensharbour.ca">
+            <div class="name-field">
+              <label>Address</label>
+              <input type="text" class="text-field-input" id="invCompanyAddress" placeholder="245 Queens Quay West">
+            </div>
+            <div class="name-field" style="margin-bottom:0;">
+              <label>City, Province, Postal Code</label>
+              <input type="text" class="text-field-input" id="invCompanyCityProvPostal" placeholder="Toronto, Ontario">
+            </div>
+            <div class="dual-input-row" style="margin-top:16px;">
+              <div class="dual-input">
+                <label>Phone</label>
+                <input type="text" class="text-field-input" id="invCompanyPhone" placeholder="(416) 572-4300">
+              </div>
+              <div class="dual-input">
+                <label>Email</label>
+                <input type="text" class="text-field-input" id="invCompanyEmail" placeholder="beverages@queensharbour.ca">
+              </div>
             </div>
           </div>
-          <div class="name-field" style="margin-bottom:0;">
-            <label>HST / Business Number</label>
-            <input type="text" class="text-field-input" id="invCompanyHst" placeholder="123456789 RT0001">
+
+          <div class="input-block" id="invSetupCodeBlock">
+            <h3>Access Code</h3>
+            <p class="inputs-hint">Code to unlock this Setup panel. Default is 0000 — change it here if you'd like a different one.</p>
+            <div class="dual-input-row">
+              <div class="dual-input">
+                <label>New code</label>
+                <input type="text" inputmode="numeric" class="text-field-input" id="invSetupNewCode" placeholder="0000">
+              </div>
+            </div>
+            <div class="save-row">
+              <button type="button" class="btn-secondary" id="invSetupSaveCodeBtn">Save code</button>
+              <span class="save-msg" id="invSetupCodeMsg"></span>
+            </div>
           </div>
         </div>
       </section>
@@ -789,6 +810,12 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" onerror="window.__jspdfLoadFailed=true;"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" onerror="window.__pdfjsLoadFailed=true;"></script>
+<script>
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+</script>
 <script>
 // The item table in the invoice PDF is drawn by hand with core jsPDF calls (see drawInvoiceTable
 // below) instead of the jspdf-autotable plugin — one less external script that has to load
@@ -799,7 +826,7 @@ const INITIAL_NUM_BATCH_BARS = 10;
 const STORAGE_KEY = 'kegCalculatorData';
 const ADMIN_CODE = '9906';
 const OZ_TO_L = 0.0295735; // 1 US fluid ounce in liters
-const INVOICE_DEFAULT_TAX_RATE_PCT = 11.5; // editable per invoice — LCBO/Beer Store invoices don't always work out to a flat 13%
+const INVOICE_DEFAULT_TAX_RATE_PCT = 13; // Ontario HST, editable per invoice in case a supplier invoice ever works out differently
 const INVOICE_DEFAULT_BOTTLE_DEPOSIT = 0.20; // per-bottle deposit default, editable per line item
 // Queens Harbour Restaurant letterhead logo, embedded so this stays a single self-contained file.
 const INVOICE_LOGO_DATA_URL = 'data:image/jpeg;base64,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';
@@ -2498,15 +2525,17 @@ function ensureInvoicesState(){
   if(c.cityProvPostal === undefined || c.cityProvPostal === null) c.cityProvPostal = 'Toronto, Ontario';
   if(c.phone === undefined || c.phone === null) c.phone = '(416) 572-4300';
   if(c.email === undefined || c.email === null) c.email = 'beverages@queensharbour.ca';
-  if(c.hst === undefined || c.hst === null) c.hst = '';
+  if(state.invoices.setupCode === undefined || state.invoices.setupCode === null || state.invoices.setupCode === '') state.invoices.setupCode = '0000';
   ['lcbo','beerStore'].forEach(key=>{
     if(!state.invoices[key] || typeof state.invoices[key] !== 'object') state.invoices[key] = {};
     const inv = state.invoices[key];
-    if(inv.invoiceNo === undefined || inv.invoiceNo === null) inv.invoiceNo = '';
     if(!inv.date) inv.date = todayInputValue();
     if(inv.supplierRef === undefined || inv.supplierRef === null) inv.supplierRef = '';
     if(inv.expectedTotal === undefined) inv.expectedTotal = null;
     if(inv.taxRatePct === undefined || inv.taxRatePct === null) inv.taxRatePct = INVOICE_DEFAULT_TAX_RATE_PCT;
+    // 11.5% was a temporary testing default that got saved to some browsers before the real HST
+    // rate (13%) was confirmed — bump anyone still sitting on that old default back up to 13%.
+    if(inv.taxRatePct === 11.5) inv.taxRatePct = INVOICE_DEFAULT_TAX_RATE_PCT;
     if(!Array.isArray(inv.items) || inv.items.length === 0) inv.items = [emptyInvoiceItem()];
     // Migrate any item saved before the bottle deposit field existed.
     inv.items.forEach(it=>{
@@ -2514,13 +2543,17 @@ function ensureInvoicesState(){
     });
   });
 }
-// Alcohol unit price with tax included (does NOT include the bottle deposit — the deposit is never
-// taxed, so it always stays out of this figure and gets added back separately below).
+// IMPORTANT: on real LCBO/Beer Store invoices, the printed "Unit Price" already has the bottle
+// deposit baked into it (that's what "Bottle Deposit(incl.)" means on their paperwork) — the
+// deposit is NOT an extra amount added on top. So priceWithTax = alcohol (incl. HST) + deposit,
+// and we have to back the deposit out before splitting the tax, otherwise the deposit gets taxed
+// and counted twice. The deposit itself is never taxed.
 function invoiceUnitPriceExclTax(item, taxRatePct){
   const price = Number(item.priceWithTax);
   if(item.priceWithTax === null || item.priceWithTax === undefined || item.priceWithTax === '' || isNaN(price)) return 0;
   const rate = Number(taxRatePct) / 100;
-  return price / (1 + rate);
+  const alcoholInclTax = price - invoiceDepositPerUnit(item);
+  return alcoholInclTax / (1 + rate);
 }
 function invoiceDepositPerUnit(item){
   const d = Number(item.bottleDeposit);
@@ -2532,27 +2565,31 @@ function invoiceHasQtyAndPrice(item){
     item.priceWithTax === null || item.priceWithTax === undefined || item.priceWithTax === '' ||
     isNaN(Number(item.qty)) || isNaN(Number(item.priceWithTax)));
 }
-// Full line total as it appears on the real supplier invoice: qty × (unit price incl. tax + deposit).
+// Full line total as it appears on the real supplier invoice: qty × unit price (deposit already
+// included in that price, so it is NOT added again here).
 function invoiceLineTotal(item){
   if(!invoiceHasQtyAndPrice(item)) return 0;
   const qty = Number(item.qty);
-  return qty * (Number(item.priceWithTax) + invoiceDepositPerUnit(item));
+  return qty * Number(item.priceWithTax);
 }
 function invoiceLineDeposit(item){
   if(!invoiceHasQtyAndPrice(item)) return 0;
   return Number(item.qty) * invoiceDepositPerUnit(item);
 }
-// productSubtotal = alcohol only, tax excl.; deposit = never taxed, passed through as-is;
-// tax = derived from Total so Subtotal + Deposit + Tax === Total to the cent, always.
+// total = literal sum of (qty × price-with-tax) typed in, so it matches the real supplier invoice
+// total by construction. deposit = never taxed, backed out before splitting alcohol/tax.
+// productSubtotal = alcohol only, tax excl.; tax = alcoholInclTax - productSubtotal, so
+// Subtotal + Deposit + Tax === Total to the cent, always.
 function invoiceComputeTotals(items, taxRatePct){
   let total = 0, deposit = 0, alcoholInclTax = 0;
   items.forEach(it=>{
     if(!invoiceHasQtyAndPrice(it)) return;
     const qty = Number(it.qty);
-    alcoholInclTax += qty * Number(it.priceWithTax);
-    deposit += qty * invoiceDepositPerUnit(it);
+    const lineDeposit = qty * invoiceDepositPerUnit(it);
+    total += qty * Number(it.priceWithTax);
+    deposit += lineDeposit;
+    alcoholInclTax += qty * Number(it.priceWithTax) - lineDeposit;
   });
-  total = alcoholInclTax + deposit;
   const rate = Number(taxRatePct) / 100;
   const productSubtotal = alcoholInclTax / (1 + rate);
   const tax = alcoholInclTax - productSubtotal;
@@ -2581,10 +2618,9 @@ function renderInvoiceCompanyBlock(){
   document.getElementById('invCompanyCityProvPostal').value = c.cityProvPostal;
   document.getElementById('invCompanyPhone').value = c.phone;
   document.getElementById('invCompanyEmail').value = c.email;
-  document.getElementById('invCompanyHst').value = c.hst;
 }
 [['invCompanyName','name'],['invCompanyAddress','address'],['invCompanyCityProvPostal','cityProvPostal'],
- ['invCompanyPhone','phone'],['invCompanyEmail','email'],['invCompanyHst','hst']].forEach(([id,field])=>{
+ ['invCompanyPhone','phone'],['invCompanyEmail','email']].forEach(([id,field])=>{
   document.getElementById(id).addEventListener('input', e=>{
     ensureInvoicesState();
     state.invoices.company[field] = e.target.value;
@@ -2592,12 +2628,75 @@ function renderInvoiceCompanyBlock(){
   });
 });
 
+// ---------- Invoices > SETUP lock ----------
+// A separate code from the app-wide ADMIN_CODE, specific to this Setup panel (letterhead + this
+// code itself). Defaults to 0000 and is changeable from inside the panel once unlocked. Resets to
+// locked on every page load, same as the other admin locks.
+let invoicesSetupUnlocked = false;
+function applyInvoicesSetupLockUI(){
+  const locked = !invoicesSetupUnlocked;
+  document.getElementById('invSetupLockIcon').textContent = locked ? '🔒' : '🔓';
+  document.getElementById('invSetupLockText').textContent = locked
+    ? 'Setup is locked — enter the code to view it.'
+    : 'Setup unlocked.';
+  document.getElementById('invSetupCodeInput').classList.toggle('hidden', !locked);
+  document.getElementById('invSetupUnlockBtn').classList.toggle('hidden', !locked);
+  document.getElementById('invSetupLockBtn').classList.toggle('hidden', locked);
+  document.getElementById('invSetupGatedContent').classList.toggle('hidden', locked);
+  if(locked) document.getElementById('invSetupCodeInput').value = '';
+}
+function bindInvoicesSetupLockBar(){
+  const codeInput = document.getElementById('invSetupCodeInput');
+  const msg = document.getElementById('invSetupLockMsg');
+  document.getElementById('invSetupUnlockBtn').addEventListener('click', ()=>{
+    ensureInvoicesState();
+    if(codeInput.value.trim() === state.invoices.setupCode){
+      invoicesSetupUnlocked = true;
+      msg.textContent = '';
+      applyInvoicesSetupLockUI();
+    } else {
+      msg.textContent = 'Incorrect code.';
+      msg.style.color = 'var(--red)';
+      msg.classList.add('show');
+      setTimeout(()=>msg.classList.remove('show'), 1800);
+    }
+  });
+  codeInput.addEventListener('keydown', e=>{
+    if(e.key === 'Enter') document.getElementById('invSetupUnlockBtn').click();
+  });
+  document.getElementById('invSetupLockBtn').addEventListener('click', ()=>{
+    invoicesSetupUnlocked = false;
+    msg.textContent = '';
+    applyInvoicesSetupLockUI();
+  });
+  document.getElementById('invSetupSaveCodeBtn').addEventListener('click', ()=>{
+    ensureInvoicesState();
+    const input = document.getElementById('invSetupNewCode');
+    const val = input.value.trim();
+    const codeMsg = document.getElementById('invSetupCodeMsg');
+    if(!val){
+      codeMsg.textContent = 'Enter a code before saving.';
+      codeMsg.style.color = 'var(--red)';
+      codeMsg.classList.add('show');
+      setTimeout(()=>codeMsg.classList.remove('show'), 1800);
+      return;
+    }
+    state.invoices.setupCode = val;
+    saveData();
+    input.value = '';
+    codeMsg.textContent = 'Code updated.';
+    codeMsg.style.color = 'var(--green)';
+    codeMsg.classList.add('show');
+    setTimeout(()=>codeMsg.classList.remove('show'), 1800);
+  });
+}
+
 function invoiceMatchMsgHtml(totals, expected){
   if(expected === null || expected === undefined || expected === '') return '';
   const diff = Math.abs(Number(expected) - totals.total);
   return diff < 0.01
-    ? `<span style="color:var(--green);font-weight:700;">&#10003; Coincide con el total de la factura real</span>`
-    : `<span style="color:var(--red);font-weight:700;">&#10007; Difiere por $${diff.toFixed(2)} del total de la factura real — revisa las cantidades y precios.</span>`;
+    ? `<span style="color:var(--green);font-weight:700;">&#10003; Matches the supplier invoice total</span>`
+    : `<span style="color:var(--red);font-weight:700;">&#10007; Off by $${diff.toFixed(2)} from the supplier invoice total — check the quantities and prices.</span>`;
 }
 
 function renderInvoiceContent(key){
@@ -2609,77 +2708,77 @@ function renderInvoiceContent(key){
 
   wrap.innerHTML = `
     <div class="input-block">
-      <h3>${supplierLabel} — Datos de la factura</h3>
+      <h3>${supplierLabel} — Invoice Details</h3>
+      ${key === 'lcbo' ? `
+      <div class="dual-input-row" style="margin-bottom:12px;">
+        <div class="dual-input" style="flex:1;">
+          <label>Auto-fill from the LCBO "Ready for Pickup" email PDF</label>
+          <input type="file" accept="application/pdf" class="text-field-input" id="${key}InvPdfUpload">
+          <p class="inv-note" id="${key}InvPdfUploadMsg" style="margin-top:6px;"></p>
+        </div>
+      </div>
+      ` : ''}
       <div class="dual-input-row">
         <div class="dual-input">
-          <label>N.° de factura (nuestra)</label>
-          <input type="text" class="text-field-input" id="${key}InvoiceNo" placeholder="ej. 001">
-        </div>
-        <div class="dual-input">
-          <label>Fecha</label>
+          <label>Date</label>
           <input type="date" class="text-field-input" id="${key}InvoiceDate">
         </div>
+        <div class="dual-input">
+          <label>${supplierLabel} Invoice / Reference #</label>
+          <input type="text" class="text-field-input" id="${key}SupplierRef" placeholder="Original invoice #">
+        </div>
       </div>
       <div class="dual-input-row" style="margin-top:12px;">
-        <div class="dual-input">
-          <label>N.° / referencia de la factura de ${supplierLabel}</label>
-          <input type="text" class="text-field-input" id="${key}SupplierRef" placeholder="N.° de la factura original">
-        </div>
         <div class="dual-input">
           <label>Tax (%)</label>
-          <input type="number" step="0.1" min="0" class="text-field-input" id="${key}TaxRate" placeholder="11.5">
+          <input type="number" step="0.1" min="0" class="text-field-input" id="${key}TaxRate" placeholder="13">
         </div>
-      </div>
-      <div class="dual-input-row" style="margin-top:12px;">
         <div class="dual-input">
-          <label>Total real de la factura (opcional)</label>
+          <label>Real invoice total (optional)</label>
           <input type="number" step="0.01" min="0" class="text-field-input" id="${key}ExpectedTotal" placeholder="0.00">
         </div>
-        <div class="dual-input"></div>
       </div>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th>Cerveza / Producto</th>
-          <th>Cant.</th>
-          <th>Precio c/tax</th>
-          <th>Deposit c/u</th>
-          <th>Precio unidad s/tax</th>
-          <th>Total línea</th>
+          <th>Item</th>
+          <th>Qty</th>
+          <th>Price (tax incl.)</th>
+          <th>Deposit /u</th>
+          <th>Unit Price (tax excl.)</th>
+          <th>Line Total</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="${key}InvBody"></tbody>
     </table>
     <div class="calc-actions">
-      <button type="button" class="btn-secondary" id="${key}InvAddBtn">+ Agregar producto</button>
+      <button type="button" class="btn-secondary" id="${key}InvAddBtn">+ Add Item</button>
       <button type="button" class="btn-danger" id="${key}InvResetBtn">Reset</button>
     </div>
 
     <div class="results" id="${key}InvResults">
-      <h2>Resumen</h2>
+      <h2>Summary</h2>
       <table>
         <tbody>
-          <tr><td>Subtotal (producto, sin tax)</td><td style="text-align:right;" id="${key}InvSubtotal">$${totals.productSubtotal.toFixed(2)}</td></tr>
+          <tr><td>Subtotal (product, tax excl.)</td><td style="text-align:right;" id="${key}InvSubtotal">$${totals.productSubtotal.toFixed(2)}</td></tr>
           <tr><td>Bottle Deposit</td><td style="text-align:right;" id="${key}InvDeposit">$${totals.deposit.toFixed(2)}</td></tr>
           <tr><td id="${key}InvTaxLabel">Tax (${Number(inv.taxRatePct).toFixed(1)}%)</td><td style="text-align:right;" id="${key}InvTax">$${totals.tax.toFixed(2)}</td></tr>
           <tr><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;" id="${key}InvTotal">$${totals.total.toFixed(2)}</td></tr>
         </tbody>
       </table>
       <p class="inv-note" id="${key}InvMatchMsg">${invoiceMatchMsgHtml(totals, inv.expectedTotal)}</p>
-      <button type="button" class="btn-primary" id="${key}InvPdfBtn">Descargar factura en PDF</button>
+      <button type="button" class="btn-primary" id="${key}InvPdfBtn">Download Invoice PDF</button>
     </div>
   `;
 
-  document.getElementById(`${key}InvoiceNo`).value = inv.invoiceNo;
   document.getElementById(`${key}InvoiceDate`).value = inv.date;
   document.getElementById(`${key}SupplierRef`).value = inv.supplierRef;
   document.getElementById(`${key}TaxRate`).value = inv.taxRatePct;
   document.getElementById(`${key}ExpectedTotal`).value = (inv.expectedTotal === null || inv.expectedTotal === undefined) ? '' : inv.expectedTotal;
 
-  document.getElementById(`${key}InvoiceNo`).addEventListener('input', e=>{ inv.invoiceNo = e.target.value; saveData(); });
   document.getElementById(`${key}InvoiceDate`).addEventListener('input', e=>{ inv.date = e.target.value; saveData(); });
   document.getElementById(`${key}SupplierRef`).addEventListener('input', e=>{ inv.supplierRef = e.target.value; saveData(); });
   document.getElementById(`${key}TaxRate`).addEventListener('input', e=>{
@@ -2699,7 +2798,7 @@ function renderInvoiceContent(key){
     renderInvoiceItemsTable(key);
   });
   document.getElementById(`${key}InvResetBtn`).addEventListener('click', ()=>{
-    if(!confirm(`¿Borrar todos los productos de la factura de ${supplierLabel}? (Se mantienen los datos de la empresa y de la factura.)`)) return;
+    if(!confirm(`Clear all items on the ${supplierLabel} invoice? (Company info and invoice details are kept.)`)) return;
     inv.items = [emptyInvoiceItem()];
     inv.expectedTotal = null;
     saveData();
@@ -2707,7 +2806,111 @@ function renderInvoiceContent(key){
   });
   document.getElementById(`${key}InvPdfBtn`).addEventListener('click', ()=> generateInvoicePDF(key));
 
+  const uploadInput = document.getElementById(`${key}InvPdfUpload`);
+  if(uploadInput){
+    uploadInput.addEventListener('change', e=>{
+      const file = e.target.files && e.target.files[0];
+      if(file) handleInvoicePdfUpload(key, file);
+      uploadInput.value = '';
+    });
+  }
+
   renderInvoiceItemsTable(key);
+}
+
+// ---------- LCBO invoice PDF auto-fill ----------
+// The LCBO "Ready for Pickup" email (saved/printed as PDF) is our invoice. Its text layer is very
+// regularly structured — each item is "NAME  $lineAmount" followed by LCBO#/Quantity Ordered/
+// Quantity Fulfilled/Unit Price/Bottle Deposit(incl.)/Size mL — so we can read it with pdf.js,
+// rebuild the visual line order (pdf.js's raw stream order doesn't always match how it reads on
+// the page), and pull the items + header fields out with regexes. Validated against a real sample
+// order (24 items) with an exact match to the invoice's printed Subtotal/Total.
+async function parseLcboInvoicePdf(file){
+  if(window.__pdfjsLoadFailed || !window.pdfjsLib){
+    throw new Error('Could not load the PDF reader library from the internet. Check your connection, reload the page, and try again.');
+  }
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  const lines = [];
+  for(let p = 1; p <= pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const items = content.items
+      .map(it => ({ str: it.str, x: it.transform[4], y: it.transform[5] }))
+      .filter(it => it.str && it.str.trim().length);
+    items.sort((a,b) => b.y - a.y || a.x - b.x);
+    let rows = [], current = null;
+    const Y_TOL = 2.5;
+    items.forEach(it=>{
+      if(current && Math.abs(current.y - it.y) <= Y_TOL){ current.items.push(it); }
+      else { current = { y: it.y, items: [it] }; rows.push(current); }
+    });
+    rows.forEach(row=>{
+      row.items.sort((a,b) => a.x - b.x);
+      const text = row.items.map(it => it.str).join(' ').replace(/\s+/g,' ').trim();
+      if(text) lines.push(text);
+    });
+    lines.push('');
+  }
+  const fullText = lines.join('\n');
+
+  const itemRe = /^(.+?)\s+\$([\d,]+\.\d{2})[ \t]*\n+LCBO#:\s*(\d+)[ \t]*\n+Quantity Ordered:\s*(\d+)[ \t]*\n+Quantity Fulfilled:\s*(\d+)[ \t]*\n+Unit Price:\s*\$([\d.]+)[ \t]*\n+Bottle Deposit\(incl\.\):\s*\$([\d.]+)[ \t]*\n+(?:Size mL:\s*(\d+)[ \t]*\n+)?/gm;
+  let m, items = [];
+  while((m = itemRe.exec(fullText)) !== null){
+    items.push({
+      name: m[1].trim(),
+      qty: parseInt(m[5], 10), // Quantity Fulfilled — what was actually charged
+      priceWithTax: parseFloat(m[6]),
+      bottleDeposit: parseFloat(m[7])
+    });
+  }
+  if(!items.length){
+    throw new Error("Could not find any line items in this PDF. Make sure it's an LCBO \"Ready for Pickup\" order email saved as PDF.");
+  }
+
+  const orderMatch = /order #\s*(\d+)/i.exec(fullText);
+  const dateMatch = /^Date\s+\w+\s+(\d{4}-\d{2}-\d{2})/m.exec(fullText);
+  const totalMatch = /^Total:\s*\$?([\d,]+\.\d{2})/m.exec(fullText);
+
+  return {
+    items,
+    supplierRef: orderMatch ? orderMatch[1] : '',
+    date: dateMatch ? dateMatch[1] : '',
+    expectedTotal: totalMatch ? parseFloat(totalMatch[1].replace(/,/g,'')) : null
+  };
+}
+
+async function handleInvoicePdfUpload(key, file){
+  const msgEl = document.getElementById(`${key}InvPdfUploadMsg`);
+  const setMsg = (text, ok)=>{
+    if(!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.style.color = ok ? 'var(--green)' : 'var(--red)';
+  };
+  setMsg('Reading PDF…', true);
+  try{
+    const inv = state.invoices[key];
+    const hasExistingData = inv.items.some(it => it.name && it.name.trim());
+    if(hasExistingData && !confirm(`This will replace the current ${INVOICE_SUPPLIER_LABEL[key]} items with what's read from the PDF. Continue?`)){
+      setMsg('', true);
+      return;
+    }
+    const parsed = await parseLcboInvoicePdf(file);
+    inv.items = parsed.items.map(p => ({ name: p.name, qty: p.qty, priceWithTax: p.priceWithTax, bottleDeposit: p.bottleDeposit }));
+    if(parsed.date) inv.date = parsed.date;
+    if(parsed.supplierRef) inv.supplierRef = parsed.supplierRef;
+    if(parsed.expectedTotal !== null) inv.expectedTotal = parsed.expectedTotal;
+    saveData();
+    renderInvoiceContent(key);
+    const msgEl2 = document.getElementById(`${key}InvPdfUploadMsg`);
+    if(msgEl2){
+      msgEl2.textContent = `Loaded ${parsed.items.length} item${parsed.items.length === 1 ? '' : 's'} from the PDF.`;
+      msgEl2.style.color = 'var(--green)';
+    }
+  }catch(err){
+    console.error('handleInvoicePdfUpload failed:', err);
+    setMsg(err && err.message ? err.message : 'Could not read this PDF.', false);
+  }
 }
 
 function renderInvoiceItemsTable(key){
@@ -2720,13 +2923,13 @@ function renderInvoiceItemsTable(key){
     const lineTotal = invoiceLineTotal(item);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><input type="text" list="${namesListId}" class="kw-input kw-name-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="name" value="${escapeHtml(item.name)}" placeholder="Nombre"></td>
+      <td><input type="text" list="${namesListId}" class="kw-input kw-name-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="name" value="${escapeHtml(item.name)}" placeholder="Item name"></td>
       <td><input type="number" step="1" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="qty" value="${item.qty ?? ''}" placeholder="0"></td>
       <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="priceWithTax" value="${item.priceWithTax ?? ''}" placeholder="0.00"></td>
       <td><input type="number" step="0.01" min="0" class="kw-input kw-num-input inv-item-input" data-key="${key}" data-idx="${i}" data-field="bottleDeposit" value="${item.bottleDeposit ?? ''}" placeholder="0.20"></td>
       <td class="vol-ok" id="${key}-inv-unit-${i}">$${unitExcl.toFixed(2)}</td>
       <td class="vol-ok" id="${key}-inv-linetotal-${i}">$${lineTotal.toFixed(2)}</td>
-      <td><button type="button" class="remove-open-btn inv-item-remove-btn" data-key="${key}" data-idx="${i}" title="Quitar">&times;</button></td>
+      <td><button type="button" class="remove-open-btn inv-item-remove-btn" data-key="${key}" data-idx="${i}" title="Remove">&times;</button></td>
     `;
     body.appendChild(tr);
   });
@@ -2789,6 +2992,10 @@ function drawInvoiceTable(doc, startY, head, rows){
   const rowHeight = 9;
   const pageBottom = doc.internal.pageSize.getHeight() - 34;
   let y = startY;
+  // Top of the table (including its header) on whichever page is currently being drawn — reset
+  // every time a new page starts, so the closing border always matches that page's own rows
+  // instead of stretching back to the very first page's position.
+  let pageTop = startY;
 
   function drawHeader(){
     doc.setFillColor(181,101,29);
@@ -2807,19 +3014,32 @@ function drawInvoiceTable(doc, startY, head, rows){
     y += rowHeight;
   }
 
+  function closeCurrentPageBorder(){
+    doc.setDrawColor(200,190,177);
+    doc.rect(left, pageTop, tableWidth, y - pageTop);
+    let xsep = left;
+    colWidths.forEach((w,i)=>{
+      xsep += w;
+      if(i < colWidths.length - 1) doc.line(xsep, pageTop, xsep, y);
+    });
+  }
+
   drawHeader();
   doc.setFont(undefined, 'normal');
   doc.setFontSize(9);
   doc.setDrawColor(229,221,209);
 
-  const tableTop = startY;
   rows.forEach((row, rIdx)=>{
     if(y + rowHeight > pageBottom){
       // Close out the current page's table border before starting a new page.
-      doc.rect(left, tableTop === startY ? startY : tableTop, tableWidth, y - (tableTop === startY ? startY : tableTop));
+      closeCurrentPageBorder();
       doc.addPage();
       y = 20;
+      pageTop = 20;
       drawHeader();
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(229,221,209);
     }
     if(rIdx % 2 === 1){
       doc.setFillColor(250,247,242);
@@ -2847,13 +3067,7 @@ function drawInvoiceTable(doc, startY, head, rows){
   });
 
   // Outer border + column separators for the last page of the table.
-  doc.setDrawColor(200,190,177);
-  doc.rect(left, tableTop, tableWidth, y - tableTop);
-  let xsep = left;
-  colWidths.forEach((w,i)=>{
-    xsep += w;
-    if(i < colWidths.length - 1) doc.line(xsep, tableTop, xsep, y);
-  });
+  closeCurrentPageBorder();
 
   return y;
 }
@@ -2873,11 +3087,11 @@ function generateInvoicePDF(key){
     const supplierLabel = INVOICE_SUPPLIER_LABEL[key];
     const items = inv.items.filter(it => it.name && it.name.trim() && invoiceHasQtyAndPrice(it));
     if(!items.length){
-      alert('Agrega al menos un producto con nombre, cantidad y precio antes de generar el PDF.');
+      alert('Add at least one item with a name, quantity and price before generating the PDF.');
       return;
     }
     if(window.__jspdfLoadFailed || !window.jspdf || !window.jspdf.jsPDF){
-      alert('No se pudo cargar la librería de PDF (jsPDF) desde internet. Revisa tu conexión y recarga la página, luego intenta de nuevo.');
+      alert('Could not load the PDF library (jsPDF) from the internet. Check your connection, reload the page, and try again.');
       return;
     }
 
@@ -2903,8 +3117,7 @@ function generateInvoicePDF(key){
     const infoLines = [
       company.address,
       company.cityProvPostal,
-      [company.phone, company.email].filter(Boolean).join('   •   '),
-      company.hst ? `HST/Business #: ${company.hst}` : ''
+      [company.phone, company.email].filter(Boolean).join('   •   ')
     ].filter(Boolean);
     infoLines.forEach(line=>{ doc.text(line, 14, y); y += 5; });
 
@@ -2917,7 +3130,6 @@ function generateInvoicePDF(key){
     let ry = 30;
     const metaLines = [
       `Supplier: ${supplierLabel}`,
-      `Invoice #: ${inv.invoiceNo || '—'}`,
       `Date: ${inv.date || '—'}`,
       inv.supplierRef ? `${supplierLabel} Ref #: ${inv.supplierRef}` : ''
     ].filter(Boolean);
@@ -2929,12 +3141,15 @@ function generateInvoicePDF(key){
       const qty = Number(it.qty);
       const unitExcl = invoiceUnitPriceExclTax(it, inv.taxRatePct);
       const depositUnit = invoiceDepositPerUnit(it);
+      // Amount is the as-invoiced line total (qty × tax-incl. price), so the column sums to Total
+      // exactly — unitExcl/deposit are shown per-unit for reference but Amount isn't derived from
+      // rounding them back up.
       return [
         it.name,
         String(qty),
         `$${unitExcl.toFixed(2)}`,
         `$${depositUnit.toFixed(2)}`,
-        `$${(unitExcl*qty + depositUnit*qty).toFixed(2)}`
+        `$${invoiceLineTotal(it).toFixed(2)}`
       ];
     });
 
@@ -2975,7 +3190,7 @@ function generateInvoicePDF(key){
     doc.save(`${dd}${mm}invoice.pdf`);
   }catch(err){
     console.error('generateInvoicePDF failed:', err);
-    alert('No se pudo generar el PDF: ' + (err && err.message ? err.message : err) + '\n\nAbre la consola del navegador (F12 o Cmd+Opt+I) para más detalle si esto se repite.');
+    alert('Could not generate the PDF: ' + (err && err.message ? err.message : err) + '\n\nOpen the browser console (F12 or Cmd+Opt+I) for more detail if this happens again.');
   }
 }
 
@@ -4873,6 +5088,8 @@ renderInvoiceNameLists();
 renderInvoiceCompanyBlock();
 renderInvoiceContent('lcbo');
 renderInvoiceContent('beerStore');
+bindInvoicesSetupLockBar();
+applyInvoicesSetupLockUI();
 applyAllLocksUI(); // also does the initial (locked) render of Setup, Extra, and Inv Map
 </script>
 </body>
