@@ -811,6 +811,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" onerror="window.__jspdfLoadFailed=true;"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" onerror="window.__pdfjsLoadFailed=true;"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js" onerror="window.__tesseractLoadFailed=true;"></script>
 <script>
 if(window.pdfjsLib){
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -2544,13 +2545,14 @@ function ensureInvoicesState(){
     if(inv.fuelCharge === undefined) inv.fuelCharge = null;
     if(!Array.isArray(inv.items) || inv.items.length === 0) inv.items = [emptyInvoiceItem(key)];
     // Migrate any item saved before the bottle deposit / size fields existed, and keep Beer
-    // Store's deposit in sync with its flat by-size rate ($50 for 58.6L kegs, $20 for 19L kegs,
-    // $2.40 for 330mL bottle cases) — it's derived from Size (mL) rather than typed in, so it's
+    // Store's deposit in sync with its rate (by size for kegs; by the case's own printed unit
+    // count — e.g. "24LC" — for bottle/can cases) — it's derived rather than typed in, so it's
     // recomputed here every time in case the size was edited or the item was loaded from an older
-    // save.
+    // save (this also retroactively fixes any case that saved as $0 before this rule understood
+    // its pack format).
     inv.items.forEach(it=>{
       if(it.sizeMl === undefined) it.sizeMl = null;
-      if(key === 'beerStore') it.bottleDeposit = beerStoreDepositForSizeMl(it.sizeMl);
+      if(key === 'beerStore') it.bottleDeposit = beerStoreDepositForItem(it.name, it.sizeMl);
       else if(it.bottleDeposit === undefined) it.bottleDeposit = INVOICE_DEFAULT_BOTTLE_DEPOSIT;
     });
   });
@@ -2589,6 +2591,38 @@ function beerStoreDepositForSizeMl(sizeMl){
     if(rate.ml >= 1000 && Math.abs(asLiters - rate.ml) <= rate.tolerance) return rate.deposit;
   }
   return 0;
+}
+// The Beer Store prints the case's own unit count right in the product description, e.g.
+// "GUINNESS 0.0, 440ML 24LC CAN" is a case of 24 cans — "24LC". Reading that count directly (and
+// multiplying by Ontario's actual per-container deposit rate: $0.10 for 630mL or under, $0.20
+// above) generalizes to ANY can or bottle case size/count instead of only the one 330mL/24-pack
+// case the old fixed-size rule above was written for — that's what was giving $0 for a 440mL can
+// case (24 × 440 ≠ any size this app knew about) even though the invoice itself clearly prices
+// its deposit at $0.10/can ($2.40 for the 24-can case, confirmed by the invoice's own "Cans ...
+// 2.40" summary line).
+function parseCaseCountFromDescription(desc){
+  const m = /(\d+)\s*LC\b/i.exec(desc || '');
+  return m ? parseInt(m[1], 10) : null;
+}
+function beerStoreDepositForItem(desc, sizeMl){
+  const caseCount = parseCaseCountFromDescription(desc);
+  const isKeg = /\bKEG\b/i.test(desc || '');
+  if(caseCount && !isKeg){
+    const raw = Number(sizeMl);
+    const perContainer = (!isNaN(raw) && raw > 630) ? 0.20 : 0.10;
+    return Math.round(caseCount * perContainer * 100) / 100;
+  }
+  // Asahi also comes in a 30L keg, which carries a $50 deposit. Only Asahi — other 30L kegs keep
+  // the size lookup below. Size can be 30000 (mL), 30 (litres by habit), or "30L" in the name.
+  if(/asahi/i.test(desc || '')){
+    const raw = Number(sizeMl);
+    const is30L = (!isNaN(raw) && (Math.abs(raw - 30000) <= 100 || Math.abs(raw - 30) <= 0.1)) ||
+                  /\b30\s*L\b/i.test(desc || '');
+    if(is30L) return 50;
+  }
+  // Kegs, and any case the invoice doesn't label with a "NNLC" count (e.g. a manually-typed item
+  // with no description to read from), fall back to the fixed-size lookup above.
+  return beerStoreDepositForSizeMl(sizeMl);
 }
 function invoiceDepositPerUnit(item){
   const d = Number(item.bottleDeposit);
@@ -2759,11 +2793,20 @@ function renderInvoiceContent(key){
       <h3>${supplierLabel} — Invoice Details</h3>
       <div class="dual-input-row" style="margin-bottom:12px;">
         <div class="dual-input" style="flex:1;">
-          <label>${key === 'lcbo' ? 'Auto-fill from the LCBO "Ready for Pickup" email PDF' : 'Auto-fill from The Beer Store invoice PDF'}</label>
+          <label>${key === 'lcbo' ? 'Auto-fill from email invoice' : 'Auto-fill from The Beer Store invoice PDF'}</label>
           <input type="file" accept="application/pdf" class="text-field-input" id="${key}InvPdfUpload">
           <p class="inv-note" id="${key}InvPdfUploadMsg" style="margin-top:6px;"></p>
         </div>
       </div>
+      ${key === 'lcbo' ? `
+      <div class="dual-input-row" style="margin-bottom:12px;">
+        <div class="dual-input" style="flex:1;">
+          <label>Auto-fill from The LCBO Store - In Person</label>
+          <input type="file" accept="application/pdf,image/*" class="text-field-input" id="lcboInStoreUpload">
+          <p class="inv-note" id="lcboInStoreUploadMsg" style="margin-top:6px;"></p>
+        </div>
+      </div>
+      ` : ''}
       <div class="dual-input-row">
         <div class="dual-input">
           <label>Date</label>
@@ -2896,6 +2939,16 @@ function renderInvoiceContent(key){
       uploadInput.value = '';
     });
   }
+  if(key === 'lcbo'){
+    const inStoreInput = document.getElementById('lcboInStoreUpload');
+    if(inStoreInput){
+      inStoreInput.addEventListener('change', e=>{
+        const file = e.target.files && e.target.files[0];
+        if(file) handleLcboInStoreUpload(file);
+        inStoreInput.value = '';
+      });
+    }
+  }
 
   renderInvoiceItemsTable(key);
 }
@@ -3027,6 +3080,307 @@ async function parseLcboInvoicePdf(file){
   };
 }
 
+// ---------- LCBO in-person (photographed) receipt auto-fill, via OCR ----------
+// Unlike the email PDF above, an in-person LCBO store receipt is normally just a phone photo
+// (often re-saved as a PDF by a scanning app, e.g. WhatsApp's "Scan document" feature) with NO
+// text layer at all — pdf.js finds nothing to read off it. This has to go through OCR instead
+// (tesseract.js), which is inherently less reliable than reading real embedded text, especially
+// inside a dense item table. Two things made accuracy usable in testing: (1) converting to
+// black-and-white with an Otsu threshold before OCR, and (2) NEVER running OCR on the whole page
+// at once for the item table — cropping tightly to just the table rows (found dynamically by
+// locating the "UNITS" header and "TOTAL" footer text, never hardcoded, since crop percentages
+// tuned to one receipt photo don't generalize to another) and upscaling that crop 2x before a
+// second, focused OCR pass is what got the item lines reading cleanly; asking Tesseract to read
+// the whole busy page in one shot reliably scrambled digits and merged columns. Because this is
+// fundamentally less trustworthy than the email/Beer Store PDF parsers, the upload handler below
+// deliberately uses a cautious "please double-check this" message instead of the confident one
+// used there, and leans on the app's existing green/red total-match check as the safety net.
+
+async function getTesseractWorker(){
+  if(window.__tesseractLoadFailed || !window.Tesseract){
+    throw new Error('Could not load the OCR library from the internet. Check your connection, reload the page, and try again.');
+  }
+  return await Tesseract.createWorker('eng');
+}
+
+// Renders the uploaded file's first page/image onto a plain canvas. Accepts either a PDF (the
+// common case — most phones/scanning apps save a photographed receipt as a one-page PDF) or a
+// straight image file, so this one upload box works either way.
+async function lcboInStoreFileToCanvas(file){
+  if(file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')){
+    if(window.__pdfjsLoadFailed || !window.pdfjsLib){
+      throw new Error('Could not load the PDF reader library from the internet. Check your connection, reload the page, and try again.');
+    }
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2 }); // roughly a 150dpi render of the page
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    return canvas;
+  }
+  // Plain image (jpg/png/etc)
+  const dataUrl = await new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read the image file.'));
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject)=>{
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('Could not read the image file.'));
+    im.src = dataUrl;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext('2d').drawImage(img, 0, 0);
+  return canvas;
+}
+
+// Grayscale + Otsu global threshold -> clean black-and-white canvas. Photographed receipts have
+// uneven lighting/shadow that confuses OCR far more than a genuine scan would; a simple global
+// Otsu threshold (no deskewing — that was tried and made things worse, picking up spurious
+// contours) cleaned this up enough to make the rest of the pipeline work in testing.
+function otsuThresholdCanvas(srcCanvas){
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const imgData = srcCanvas.getContext('2d').getImageData(0, 0, w, h);
+  const src = imgData.data;
+  const n = w * h;
+  const gray = new Uint8ClampedArray(n);
+  const hist = new Array(256).fill(0);
+  for(let i = 0; i < n; i++){
+    const r = src[i*4], g = src[i*4+1], b = src[i*4+2];
+    const v = (0.299*r + 0.587*g + 0.114*b) | 0;
+    gray[i] = v;
+    hist[v]++;
+  }
+  let sum = 0;
+  for(let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0, wB = 0, wF = 0, varMax = -1, threshold = 127;
+  for(let t = 0; t < 256; t++){
+    wB += hist[t];
+    if(wB === 0) continue;
+    wF = n - wB;
+    if(wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const varBetween = wB * wF * (mB - mF) * (mB - mF);
+    if(varBetween > varMax){ varMax = varBetween; threshold = t; }
+  }
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const outCtx = out.getContext('2d');
+  const outData = outCtx.createImageData(w, h);
+  for(let i = 0; i < n; i++){
+    const v = gray[i] > threshold ? 255 : 0;
+    outData.data[i*4] = v; outData.data[i*4+1] = v; outData.data[i*4+2] = v; outData.data[i*4+3] = 255;
+  }
+  outCtx.putImageData(outData, 0, 0);
+  return out;
+}
+
+// Crops [x0,y0]-[x1,y1] out of a canvas and scales the result up by `scale` — upscaling a tight
+// crop, not the whole page, is what actually fixed OCR accuracy on the item table in testing.
+function cropScaleCanvas(srcCanvas, x0, y0, x1, y1, scale){
+  x0 = Math.max(0, Math.round(x0)); y0 = Math.max(0, Math.round(y0));
+  x1 = Math.min(srcCanvas.width, Math.round(x1)); y1 = Math.min(srcCanvas.height, Math.round(y1));
+  const cw = Math.max(1, x1 - x0), ch = Math.max(1, y1 - y0);
+  const out = document.createElement('canvas');
+  out.width = Math.round(cw * scale);
+  out.height = Math.round(ch * scale);
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, x0, y0, cw, ch, 0, 0, out.width, out.height);
+  return out;
+}
+
+// Item rows on this receipt format: UNITS  SKU#  DESCRIPTION  SIZE  UNIT PRICE  DEPOSIT  EXT.PRICE
+// e.g. "1 488205 JOSE CUERVO RESERVA DE LA FAMILIA 750 188.68 0.20 188.88" — each item is also
+// followed by a "RETAIL <price>" line (the regular shelf price, ignored). Unlike the email PDF,
+// the DEPOSIT column here is the LINE's total deposit (already × quantity, not per-unit), and
+// UNIT PRICE does NOT include the deposit (it's added separately to get EXT.PRICE) — both are
+// converted below to match this app's per-unit, deposit-included `priceWithTax` model.
+// The trailing EXT.PRICE column is captured loosely (group 7, whatever's left on the line) rather
+// than requiring a clean "123.45" shape — OCR occasionally drops the decimal point and splits it
+// into two space-separated chunks (e.g. "425 2" instead of "425.22"), which would otherwise fail
+// to match at all and drop the whole item. QTY/SKU/DESCRIPTION/SIZE/UNIT PRICE/DEPOSIT still have
+// to come through cleanly; EXT.PRICE is only ever used as a secondary cross-check below.
+const LCBO_INSTORE_ITEM_RE = /^\D*(\d{1,3})\s+(\d{4,7})\s+(.+?)\s+(\d{2,4})\s+(\d+(?:\.\d{1,2}))\s+(\d+(?:\.\d{1,2}))\s*(.*)$/;
+
+function parseLcboInStoreItemsFromLines(text){
+  const items = [];
+  text.split(/\r?\n/).forEach(rawLine=>{
+    const line = rawLine.trim();
+    if(!line || /^RETAIL\b/i.test(line)) return;
+    const m = LCBO_INSTORE_ITEM_RE.exec(line);
+    if(!m) return;
+    const qty = parseInt(m[1], 10);
+    const name = m[3].replace(/^[^A-Za-z0-9]+/, '').trim();
+    const sizeMl = parseInt(m[4], 10);
+    const unitPrice = parseFloat(m[5]);
+    const lineDeposit = parseFloat(m[6]);
+    if(!qty || !name) return;
+    const depositPerUnit = Math.round((lineDeposit / qty) * 100) / 100;
+    // Default to unitPrice + depositPerUnit (two separately-read, usually-cleaner columns). Only
+    // switch to EXT.PRICE ÷ qty when EXT.PRICE actually came through as a clean decimal AND it
+    // roughly agrees with that default — otherwise a garbled EXT.PRICE is simply ignored.
+    let priceWithTax = Math.round((unitPrice + depositPerUnit) * 100) / 100;
+    const extMatch = /^(\d+\.\d{2})$/.exec((m[7] || '').replace(/\s+/g, ''));
+    if(extMatch){
+      const derived = Math.round((parseFloat(extMatch[1]) / qty) * 100) / 100;
+      if(isFinite(derived) && Math.abs(derived - priceWithTax) <= 0.5) priceWithTax = derived;
+    }
+    items.push({ name, qty, priceWithTax, bottleDeposit: depositPerUnit, sizeMl });
+  });
+  return items;
+}
+
+// tesseract.js only returns word-level boxes when asked for the full `blocks` hierarchy (block ->
+// paragraph -> line -> word) — this flattens that back into a plain list of {text, bbox}.
+function flattenOcrWords(page){
+  const words = [];
+  (page.blocks || []).forEach(block=>{
+    (block.paragraphs || []).forEach(para=>{
+      (para.lines || []).forEach(line=>{
+        (line.words || []).forEach(word=>{
+          if(word && word.text) words.push(word);
+        });
+      });
+    });
+  });
+  return words;
+}
+
+// Finds a word (case-insensitive, punctuation-tolerant) in tesseract's word-box output — used to
+// dynamically locate the table's header/footer rather than relying on hardcoded crop percentages,
+// which only ever worked for the one receipt photo they were tuned against. `pick` chooses which
+// match to use when a word appears more than once ('first' = topmost, 'last' = bottommost).
+function findOcrWord(words, candidates, pick){
+  const upperCandidates = candidates.map(c => c.toUpperCase());
+  const matches = (words || []).filter(w => w.text && upperCandidates.includes(w.text.toUpperCase().replace(/[^A-Z]/g, '')));
+  if(!matches.length) return null;
+  matches.sort((a,b) => a.bbox.y0 - b.bbox.y0);
+  return pick === 'last' ? matches[matches.length - 1] : matches[0];
+}
+
+async function parseLcboInStoreReceipt(file){
+  let canvas = await lcboInStoreFileToCanvas(file);
+  canvas = otsuThresholdCanvas(canvas);
+
+  const worker = await getTesseractWorker();
+  try{
+    // Pass 1: whole page, to locate the table's header ("UNITS") and footer ("TOTAL") rows, and to
+    // read the header area (date, reference #) which isn't a dense table and OCRs fine uncropped.
+    // `blocks: true` is needed to get word-level bounding boxes back (tesseract.js omits them by
+    // default and only returns plain text).
+    const pass1 = await worker.recognize(canvas.toDataURL('image/png'), {}, { blocks: true });
+    const pass1Words = flattenOcrWords(pass1.data);
+    const headerWord = findOcrWord(pass1Words, ['UNITS', 'SKU'], 'first');
+    if(!headerWord){
+      throw new Error("Could not find the item table on this receipt photo. Try a straighter, well-lit photo, or add the items manually.");
+    }
+    // "TOTAL" also shows up further down, in the payment/summary section below the item table
+    // ("TOTAL DEPOSIT", etc.) — the item table's own total is the FIRST "TOTAL" after the header,
+    // not the last one on the page, so this looks for the topmost match below the header row.
+    const totalMatchesBelowHeader = pass1Words
+      .filter(w => w.text && w.text.toUpperCase().replace(/[^A-Z]/g, '') === 'TOTAL' && w.bbox.y0 > headerWord.bbox.y1)
+      .sort((a,b) => a.bbox.y0 - b.bbox.y0);
+    const footerWord = totalMatchesBelowHeader[0];
+    if(!footerWord){
+      throw new Error("Could not find the item table on this receipt photo. Try a straighter, well-lit photo, or add the items manually.");
+    }
+
+    // Pass 2: crop tightly to just the item table (with a little padding above/below), upscale 2x,
+    // and OCR with PSM 6 (single uniform block of text) — this combination is what actually got
+    // clean item lines out in testing; OCR on the whole page scrambled this same table badly.
+    const rowH = headerWord.bbox.y1 - headerWord.bbox.y0;
+    const tablePad = Math.max(8, Math.round(rowH * 0.6));
+    const tableCrop = cropScaleCanvas(canvas, 0, headerWord.bbox.y0 - tablePad, canvas.width, footerWord.bbox.y1 + tablePad, 2);
+    await worker.setParameters({ tessedit_pageseg_mode: '6' });
+    const pass2 = await worker.recognize(tableCrop.toDataURL('image/png'));
+    const items = parseLcboInStoreItemsFromLines(pass2.data.text);
+    if(!items.length){
+      throw new Error("Could not read any line items off this receipt photo. Try a straighter, well-lit, closer-up photo, or add the items manually.");
+    }
+
+    // Pass 3: a dedicated, tightly-cropped, heavily-upscaled read of JUST the total AMOUNT (not the
+    // "TOTAL" label next to it) — the same "crop tight + upscale" trick again, specifically because
+    // this is the one number this feature's safety net (the green/red total-match check) depends
+    // on. Cropping to just the number (found as the nearest word to the right of "TOTAL" on the
+    // same line) and restricting recognition to digits/decimal point only — no letters at all in
+    // either the image or the allowed character set — removes any chance of the "TOTAL" label
+    // itself confusing the read, which measurably cut down on dropped/misread digits in testing.
+    const totalLineWords = pass1Words.filter(w => w.text && /\d/.test(w.text) &&
+      Math.abs(((w.bbox.y0 + w.bbox.y1) / 2) - ((footerWord.bbox.y0 + footerWord.bbox.y1) / 2)) < (footerWord.bbox.y1 - footerWord.bbox.y0) &&
+      w.bbox.x0 > footerWord.bbox.x1
+    ).sort((a,b) => a.bbox.x0 - b.bbox.x0);
+    const amountWord = totalLineWords[0] || footerWord;
+    const totalRowH = amountWord.bbox.y1 - amountWord.bbox.y0;
+    const totalPadY = Math.max(10, Math.round(totalRowH * 0.8));
+    const totalPadX = Math.max(20, Math.round(totalRowH * 1.5));
+    const totalCrop = cropScaleCanvas(canvas, amountWord.bbox.x0 - totalPadX, amountWord.bbox.y0 - totalPadY, amountWord.bbox.x1 + totalPadX, amountWord.bbox.y1 + totalPadY, 4);
+    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789.' });
+    const pass3 = await worker.recognize(totalCrop.toDataURL('image/png'));
+    await worker.setParameters({ tessedit_char_whitelist: '' });
+    const totalMatches = [...pass3.data.text.matchAll(/(\d{1,3}(?:,\d{3})*\.\d{2})/g)];
+    const expectedTotal = totalMatches.length ? parseFloat(totalMatches[totalMatches.length - 1][1].replace(/,/g,'')) : null;
+
+    // Date + reference #, pulled from the header text read in pass 1 (above the table).
+    const MONTHS = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
+    let date = '';
+    const dateMatch = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/.exec(pass1.data.text);
+    if(dateMatch){
+      const mon = MONTHS[dateMatch[2].toLowerCase()];
+      if(mon) date = `${dateMatch[3]}-${mon}-${String(dateMatch[1]).padStart(2,'0')}`;
+    }
+    const refMatch = /REF\.?\s*#?\s*[:\-]?\s*(\d{5,})/i.exec(pass1.data.text) || /TRN\s*#?\s*[:\-]?\s*(\d{3,})/i.exec(pass1.data.text);
+    const supplierRef = refMatch ? refMatch[1] : '';
+
+    return { items, date, supplierRef, expectedTotal, deliveryFee: null, fuelCharge: null };
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function handleLcboInStoreUpload(file){
+  const msgEl = document.getElementById('lcboInStoreUploadMsg');
+  const setMsg = (text, color)=>{
+    if(!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.style.color = color;
+  };
+  setMsg('Reading the receipt photo (uses OCR — can take up to a minute)…', 'var(--muted)');
+  try{
+    const inv = state.invoices.lcbo;
+    const hasExistingData = inv.items.some(it => it.name && it.name.trim());
+    if(hasExistingData && !confirm("This will replace the current LCBO items with what's read from the photo. Continue?")){
+      setMsg('', 'var(--muted)');
+      return;
+    }
+    const parsed = await parseLcboInStoreReceipt(file);
+    inv.items = parsed.items.map(p => ({ name: p.name, qty: p.qty, priceWithTax: p.priceWithTax, bottleDeposit: p.bottleDeposit, sizeMl: p.sizeMl }));
+    if(parsed.date) inv.date = parsed.date;
+    if(parsed.supplierRef) inv.supplierRef = parsed.supplierRef;
+    if(parsed.expectedTotal !== null) inv.expectedTotal = parsed.expectedTotal;
+    saveData();
+    renderInvoiceContent('lcbo');
+    const msgEl2 = document.getElementById('lcboInStoreUploadMsg');
+    if(msgEl2){
+      msgEl2.textContent = `Read ${parsed.items.length} item${parsed.items.length === 1 ? '' : 's'} off the photo using OCR — this is less reliable than a text PDF, so please check every quantity and price against the receipt before trusting it` +
+        (parsed.expectedTotal === null ? '. Could not read the printed total automatically — enter it above to turn on the match check.' : ', and use the total-match check below as a guide.');
+      msgEl2.style.color = 'var(--red)';
+    }
+  }catch(err){
+    console.error('handleLcboInStoreUpload failed:', err);
+    setMsg(err && err.message ? err.message : 'Could not read this receipt photo.', 'var(--red)');
+  }
+}
+
 // ---------- Beer Store invoice PDF auto-fill ----------
 // The Beer Store invoice is a genuine table (Item No. / UPC Code / Article No / Product
 // Description / Quantity Confirmed / Quantity Shipped / Unit Price / Extended Price), not the
@@ -3064,7 +3418,7 @@ function parseBeerStoreItemsFromLines(lines){
       name,
       qty: parseInt(m[3], 10), // Quantity Shipped — what was actually charged
       priceWithTax: parseFloat(m[4]),
-      bottleDeposit: beerStoreDepositForSizeMl(sizeMl), // derived from size: $50/58.6L keg, $20/19L keg, $2.40/330mL bottle case
+      bottleDeposit: beerStoreDepositForItem(name, sizeMl), // $50/58.6L keg, $20/19L keg, or case count × $0.10/$0.20 per can/bottle
       sizeMl
     });
   });
@@ -3197,10 +3551,11 @@ function renderInvoiceItemsTable(key){
       const item = state.invoices[key].items[idx];
       if(field === 'name') item.name = e.target.value;
       else item[field] = e.target.value === '' ? null : Number(e.target.value);
-      // Beer Store's deposit is derived from Size (mL), not typed in — keep it in sync whenever
-      // the size changes.
-      if(key === 'beerStore' && field === 'sizeMl'){
-        item.bottleDeposit = beerStoreDepositForSizeMl(item.sizeMl);
+      // Beer Store's deposit is derived (from Size for kegs, from the case count in the product
+      // name for bottles/cans — e.g. "24LC"), not typed in — keep it in sync whenever either
+      // changes.
+      if(key === 'beerStore' && (field === 'sizeMl' || field === 'name')){
+        item.bottleDeposit = beerStoreDepositForItem(item.name, item.sizeMl);
         const depositCell = document.getElementById(`${key}-inv-deposit-${idx}`);
         if(depositCell) depositCell.textContent = `$${invoiceDepositPerUnit(item).toFixed(2)}`;
       }
