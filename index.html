@@ -1258,7 +1258,7 @@ let LIQUOR_META = [
 // (pack-size suffix stripped), l = nominal keg volume in Liters parsed from that suffix (null if
 // it couldn't be parsed and needs to be set in Keg Setup).
 let KEG_ITEMS = [
-  {n:"ASAHI SUPER DRY, 19L 19FK KEG",l:30.0},
+  {n:"ASAHI SUPER DRY, 30L KEG",l:30.0},
   {n:"Bellweiser 30L Keg",l:30.0},
   {n:"CORONA Extra KEG",l:58.6},
   {n:"Flying Monkey Juicy Ass Keg",l:30.0},
@@ -1363,11 +1363,11 @@ function parseKegBaseAndLiters(name){
 
 // Batch (bar batches) name list, built from the bar's "bar batches" inventory sheet.
 let BATCH_ITEMS = [
-  "Adam & Eve",
+  "Adam & Eve Spritz Batch",
   "Black Salt Mezcal Margarita Batch QH",
   "Dragonfruit Smash Batch QH",
   "Ferrero Rocher Espresso Martini Batch",
-  "Life Its a Bitch",
+  "LIFE’S A B!TCH Batch",
   "Mango Yuzu Margarita Batch QH",
   "Peachy Blinders Batch",
   "Poison Ivy Batch QH",
@@ -1375,13 +1375,13 @@ let BATCH_ITEMS = [
   "Queens Crimson Batch QH",
   "Raspberry Lychee Margarita Batch QH",
   "Smoked Japanese Old Fashioned Batch QH",
-  "Spicy Dealer",
+  "Spice Dealer Batch",
   "Spicy Passionate Batch QH",
   "Spicy Senorita Batch QH",
   "Spicy Watermelon Margarita",
   "Summer Amaro Negroni Batch QH",
   "Tiramisu Espresso Martini Batch",
-  "Untouched Pearl",
+  "Untouched Pearl Batch",
   "Where the Dragon Sleeps Batch QH"
 ];
 
@@ -1391,23 +1391,23 @@ let BATCH_ITEMS = [
 // Amaro Negroni and Smoked Japanese Old Fashioned are NOT tracked in Bar Batches — they're only
 // counted in Batch Prep (Keg Cocktail container), so they're intentionally absent from this list.
 let BATCH_BAR_ITEMS = [
-  "Adam & Eve",
+  "Adam & Eve Spritz Batch",
   "Black Salt Mezcal Margarita Batch QH",
   "Dragonfruit Smash Batch QH",
   "Ferrero Rocher Espresso Martini Batch",
-  "Life Its a Bitch",
+  "LIFE’S A B!TCH Batch",
   "Mango Yuzu Margarita Batch QH",
   "Peachy Blinders Batch",
   "Poison Ivy Batch QH",
   "Poseidon Paloma Batch",
   "Queens Crimson Batch QH",
   "Raspberry Lychee Margarita Batch QH",
-  "Spicy Dealer",
+  "Spice Dealer Batch",
   "Spicy Passionate Batch QH",
   "Spicy Senorita Batch QH",
   "Spicy Watermelon Margarita",
   "Tiramisu Espresso Martini Batch",
-  "Untouched Pearl",
+  "Untouched Pearl Batch",
   "Where the Dragon Sleeps Batch QH"
 ];
 
@@ -1918,6 +1918,13 @@ if(!state.kegMenuNov2026Applied){
   }
   state.kegMenuNov2026Applied = true;
 }
+// The Asahi keg is now 30L, so its name shouldn't still say 19L.
+if(!state.kegAsahiRenamedNov2026){
+  const ren = n => String(n||'').toLowerCase().includes('asahi') ? 'ASAHI SUPER DRY, 30L KEG' : n;
+  state.names = state.names.map(ren);
+  if(Array.isArray(state.kegItems)) state.kegItems.forEach(it => { it.n = ren(it.n); });
+  state.kegAsahiRenamedNov2026 = true;
+}
 // one-time sync: data saved before this update used generic "Batch 1".."Batch 20" placeholders.
 // Replace them with the real named batches from BATCH_ITEMS, carrying over any config/reading
 // that was already entered under a name that happens to match one of the real batch names.
@@ -2360,6 +2367,19 @@ if(!Array.isArray(state.kitchenWasteItems)){
   }
 }
 delete state.kitchenWasteQty;
+// one-time rename (Nov 2026): the four new batches were first added under short names; Marketman
+// calls them by these exact names (the export adds " - L"), so carry any saved config/readings over.
+if(!state.batchNewNamesRenamedNov2026){
+  const renames = [['Adam & Eve', 'Adam & Eve Spritz Batch'], ['Untouched Pearl', 'Untouched Pearl Batch'],
+                   ['Life Its a Bitch', 'LIFE’S A B!TCH Batch'], ['Spicy Dealer', 'Spice Dealer Batch']];
+  renames.forEach(([oldName, newName])=>{
+    const prepIdx = findBatchIdxByName(oldName);
+    if(prepIdx !== -1) state.batchNames[prepIdx] = newName;
+    const barIdx = findBatchBarIdxByName(oldName);
+    if(barIdx !== -1) state.batchBarNames[barIdx] = newName;
+  });
+  state.batchNewNamesRenamedNov2026 = true;
+}
 // one-time menu change (Nov 2026): Burning Sin, I'm in love with Coco, Loves Me Loves Me Not and
 // Rose Limoncello are off the menu (plus, from Batch Prep only, Fig&Herb Sour, Hibiscus infused Sake,
 // Hibiscus Lavender spritz and Spicy Calamansi) — drop them from both Batch Prep and Bar Batches. Life Its a
@@ -2369,7 +2389,7 @@ delete state.kitchenWasteQty;
 // re-create "burning sin"/"loves me"/"rose limoncello" as brand-new entries).
 if(!state.batchMenuNov2026AppliedV2){
   const removeKeywords = ['burning sin', 'in love with coco', 'loves me', 'rose limoncello'];
-  const addNames = ['Life Its a Bitch', 'Adam & Eve', 'Untouched Pearl', 'Spicy Dealer'];
+  const addNames = ['LIFE’S A B!TCH Batch', 'Adam & Eve Spritz Batch', 'Untouched Pearl Batch', 'Spice Dealer Batch'];
   const prepOnlyRemoveKeywords = ['fig&herb', 'hibiscus infused', 'hibiscus lavender', 'calamansi'];
   const shouldRemove = n => removeKeywords.some(k => String(n||'').toLowerCase().includes(k));
   const shouldRemovePrep = n => shouldRemove(n) || prepOnlyRemoveKeywords.some(k => String(n||'').toLowerCase().includes(k));
@@ -2404,7 +2424,7 @@ if(!state.batchMenuNov2026AppliedV2){
 if(!state.batchNewSlimCalNov2026){
   const sampleMl = Number(state.batchSampleVolumeMl) || 750;
   const slimEmptyKg = Number(state.batchGlobalSlimEmptyKg) || 0;
-  [['Adam & Eve', 3.45], ['Untouched Pearl', 3.77], ['Life Its a Bitch', 3.5], ['Spicy Dealer', 3.58]].forEach(([name, grossKg])=>{
+  [['Adam & Eve Spritz Batch', 3.45], ['Untouched Pearl Batch', 3.77], ['LIFE’S A B!TCH Batch', 3.5], ['Spice Dealer Batch', 3.58]].forEach(([name, grossKg])=>{
     const fullKg = Math.round(((grossKg - slimEmptyKg) / 3000) * sampleMl * 1000) / 1000;
     const prepIdx = findBatchIdxByName(name);
     if(prepIdx !== -1){
