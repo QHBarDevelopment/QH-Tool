@@ -121,6 +121,11 @@
   }
   .badge.ok{background:#e4f3e9;color:var(--green);}
   .badge.warn{background:#f7e9e2;color:var(--red);}
+  /* Keg Cocktail batches (Amaro Negroni, Smoked Japanese Old Fashioned) are weighed in a different
+     container, so their Prep Tool cards are tinted to stand out from the Cambro batches. */
+  .keg-card.keg-cocktail{background:#eef3fa;border-color:#7d9cc4;}
+  .keg-card.keg-cocktail h3{color:#2f5a8a;}
+  .container-tag{display:inline-block;font-size:11px;font-weight:700;color:#2f5a8a;background:#dbe6f4;border-radius:999px;padding:2px 8px;margin-bottom:10px;}
 
   .field-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
   .field-row label{font-size:13px;color:var(--muted);white-space:nowrap;min-width:112px;}
@@ -1253,19 +1258,16 @@ let LIQUOR_META = [
 // (pack-size suffix stripped), l = nominal keg volume in Liters parsed from that suffix (null if
 // it couldn't be parsed and needs to be set in Keg Setup).
 let KEG_ITEMS = [
-  {n:"ASAHI SUPER DRY, 19L 19FK KEG",l:19.0},
+  {n:"ASAHI SUPER DRY, 19L 19FK KEG",l:30.0},
   {n:"Bellweiser 30L Keg",l:30.0},
   {n:"CORONA Extra KEG",l:58.6},
   {n:"Flying Monkey Juicy Ass Keg",l:30.0},
   {n:"Goose Island IPA Keg",l:58.6},
   {n:"Guinness Keg",l:50.0},
-  {n:"Jelly King Keg",l:30.0},
   {n:"Kronenbourg 1664 Keg",l:58.6},
   {n:"Michelob Ultra Keg",l:58.6},
-  {n:"Mill Street Original Organic Lager Keg",l:50.0},
   {n:"MODELO ESPECIAL, 58.6L 58.6PK KEG",l:58.6},
   {n:"Naughty Neighbour - 58 L",l:58.0},
-  {n:"Nickel Brook Easy Going Lager Keg",l:58.6},
   {n:"Nickel Brook Lager - No Bad Daze (Keg - 58.6L)",l:58.6},
   {n:"Party Dad - 58 L",l:58.0},
   {n:"Stella Artois Keg",l:58.6}
@@ -1309,9 +1311,6 @@ let KEG_META = [
   {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"},
   {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"},
   {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"},
-  {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"},
-  {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"},
-  {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"},
   {s:["Kegs Walk in Fridge","","","","","","",""],c:"Draught Beer",t:"Inventory item"}
 ];
 
@@ -1320,12 +1319,11 @@ let KEG_META = [
 // keg's name (substring match); applied only to fields that are still blank (see the migration
 // below), so any real measurement already entered is never overwritten.
 const KEG_DEFAULT_CONFIGS = [
-  { match:"asahi", fullKg:23.8, fullLiters:20, emptyKg:4.71 },
+  { match:"asahi", fullKg:41.35, fullLiters:30, emptyKg:10.10 },
   { match:"bellweiser", fullKg:38.5, fullLiters:30, emptyKg:9.06 },
   { match:"corona", fullKg:73.1, fullLiters:58.6, emptyKg:14.44 },
   { match:"goose island", fullKg:73.4, fullLiters:58.6, emptyKg:14.4 },
   { match:"guinness", fullKg:62.2, fullLiters:50, emptyKg:12.04 },
-  { match:"jelly king", fullKg:38.6, fullLiters:30, emptyKg:9.05, newItemName:"Jelly King Keg" },
   { match:"juicy ass", fullKg:38.6, fullLiters:30, emptyKg:7.79 },
   { match:"kronenbourg", fullKg:74, fullLiters:58.6, emptyKg:14.4 },
   { match:"michelob", fullKg:72.8, fullLiters:58.6, emptyKg:14.25 },
@@ -1365,28 +1363,25 @@ function parseKegBaseAndLiters(name){
 
 // Batch (bar batches) name list, built from the bar's "bar batches" inventory sheet.
 let BATCH_ITEMS = [
+  "Adam & Eve",
   "Black Salt Mezcal Margarita Batch QH",
   "Dragonfruit Smash Batch QH",
   "Ferrero Rocher Espresso Martini Batch",
-  "Fig&Herb Sour Batch QH",
-  "Hibiscus infused Sake",
-  "Hibiscus Lavender spritz Batch QH",
-  "I'm in love with Coco Batch",
-  "Loves Me Loves Me Not Batch",
+  "Life Its a Bitch",
   "Mango Yuzu Margarita Batch QH",
   "Peachy Blinders Batch",
   "Poison Ivy Batch QH",
   "Poseidon Paloma Batch",
   "Queens Crimson Batch QH",
   "Raspberry Lychee Margarita Batch QH",
-  "Rose Limoncello Sour Batch",
   "Smoked Japanese Old Fashioned Batch QH",
-  "Spicy Calamansi Margarita Batch QH",
+  "Spicy Dealer",
   "Spicy Passionate Batch QH",
   "Spicy Senorita Batch QH",
   "Spicy Watermelon Margarita",
   "Summer Amaro Negroni Batch QH",
   "Tiramisu Espresso Martini Batch",
+  "Untouched Pearl",
   "Where the Dragon Sleeps Batch QH"
 ];
 
@@ -1396,23 +1391,23 @@ let BATCH_ITEMS = [
 // Amaro Negroni and Smoked Japanese Old Fashioned are NOT tracked in Bar Batches — they're only
 // counted in Batch Prep (Keg Cocktail container), so they're intentionally absent from this list.
 let BATCH_BAR_ITEMS = [
+  "Adam & Eve",
   "Black Salt Mezcal Margarita Batch QH",
-  "Burning Sin Margarita Batch",
   "Dragonfruit Smash Batch QH",
   "Ferrero Rocher Espresso Martini Batch",
-  "I'm in love with Coco Half Batch",
-  "Loves Me Loves Me Not Batch",
+  "Life Its a Bitch",
   "Mango Yuzu Margarita Batch QH",
   "Peachy Blinders Batch",
   "Poison Ivy Batch QH",
   "Poseidon Paloma Batch",
   "Queens Crimson Batch QH",
   "Raspberry Lychee Margarita Batch QH",
-  "Rose Limoncello Sour Batch",
+  "Spicy Dealer",
   "Spicy Passionate Batch QH",
   "Spicy Senorita Batch QH",
   "Spicy Watermelon Margarita",
   "Tiramisu Espresso Martini Batch",
+  "Untouched Pearl",
   "Where the Dragon Sleeps Batch QH"
 ];
 
@@ -1900,6 +1895,29 @@ if(!state.kegDefaultsApplied){
   });
   state.kegDefaultsApplied = true;
 }
+// one-time keg list change (Nov 2026): Jelly King, Mill Street Original Organic Lager and Nickel
+// Brook Easy Going Lager are no longer carried — drop them (with their config/reading/meta). Asahi
+// now comes in a 30L keg, re-weighed by the owner: 41.35 Kg full, 10.10 Kg empty. This one
+// overwrites the old Asahi calibration on purpose since it's a new physical keg, not a guess.
+if(!state.kegMenuNov2026Applied){
+  const removeKeg = n => ['jelly king', 'mill street', 'easy going'].some(k => String(n||'').toLowerCase().includes(k));
+  const keep = state.names.map((n,i)=>i).filter(i => i < state.numKegs && !removeKeg(state.names[i]));
+  state.names = keep.map(i => state.names[i]);
+  state.configs = keep.map(i => state.configs[i]);
+  state.readings = keep.map(i => state.readings[i]);
+  state.kegMeta = keep.map(i => state.kegMeta[i]);
+  state.numKegs = state.names.length;
+  if(Array.isArray(state.kegItems)){
+    state.kegItems = state.kegItems.filter(it => !removeKeg(it.n));
+    state.kegItems.forEach(it => { if(String(it.n||'').toLowerCase().includes('asahi')) it.l = 30; });
+    KEG_ITEMS = state.kegItems;
+  }
+  const asahiIdx = state.names.findIndex(n => String(n||'').toLowerCase().includes('asahi'));
+  if(asahiIdx !== -1){
+    state.configs[asahiIdx] = { fullKg:41.35, fullLiters:30, emptyKg:10.10 };
+  }
+  state.kegMenuNov2026Applied = true;
+}
 // one-time sync: data saved before this update used generic "Batch 1".."Batch 20" placeholders.
 // Replace them with the real named batches from BATCH_ITEMS, carrying over any config/reading
 // that was already entered under a name that happens to match one of the real batch names.
@@ -2292,6 +2310,22 @@ if(!state.batchKegCocktailDefaultKgFixed){
 
   state.batchKegCocktailDefaultKgFixed = true;
 }
+// one-time recalibration (Nov 2026): the Keg Cocktail numbers above were giving wrong volumes.
+// Re-weighed by the owner: a full Keg Cocktail holding 19 L weighs 22.6 Kg, and the empty Keg
+// Cocktail weighs 3.55 Kg — so the liquid is 19.05 Kg per 19 L. Same reading applies to both Amaro
+// Negroni and Smoked Japanese Old Fashioned. fullKg stays "liquid weight of one Sample Volume",
+// so it's scaled from that density; overwrites the earlier values on purpose.
+if(!state.batchKegCocktailRecalNov2026){
+  const sampleMl = Number(state.batchSampleVolumeMl) || 750;
+  const emptyKg = 3.55;
+  const kgPerMl = (22.6 - emptyKg) / (19 * 1000);
+  state.batchGlobalKegCocktailEmptyKg = emptyKg;
+  ['amaro negroni', 'smoked japanese old fashioned'].forEach(k=>{
+    const idx = state.batchNames.findIndex(n => String(n||'').toLowerCase().includes(k));
+    if(idx !== -1) state.batchConfigs[idx].fullKg = Math.round(kgPerMl * sampleMl * 1000) / 1000;
+  });
+  state.batchKegCocktailRecalNov2026 = true;
+}
 // migration: liquor list (may not exist on data saved before Liquor INV/Setup were added)
 if(!Array.isArray(state.liquorConfigs)) state.liquorConfigs = [];
 if(!Array.isArray(state.liquorReadings)) state.liquorReadings = [];
@@ -2326,6 +2360,73 @@ if(!Array.isArray(state.kitchenWasteItems)){
   }
 }
 delete state.kitchenWasteQty;
+// one-time menu change (Nov 2026): Burning Sin, I'm in love with Coco, Loves Me Loves Me Not and
+// Rose Limoncello are off the menu (plus, from Batch Prep only, Fig&Herb Sour, Hibiscus infused Sake,
+// Hibiscus Lavender spritz and Spicy Calamansi) — drop them from both Batch Prep and Bar Batches. Life Its a
+// Bitch, Adam & Eve, Untouched Pearl and Spicy Dealer are new — add them to both (blank calibration,
+// default Slim/Big Cambro container) if they aren't there yet. Runs after every older migration so
+// none of those re-adds a removed batch, and on fresh data too (BATCH_DEFAULT_KG would otherwise
+// re-create "burning sin"/"loves me"/"rose limoncello" as brand-new entries).
+if(!state.batchMenuNov2026AppliedV2){
+  const removeKeywords = ['burning sin', 'in love with coco', 'loves me', 'rose limoncello'];
+  const addNames = ['Life Its a Bitch', 'Adam & Eve', 'Untouched Pearl', 'Spicy Dealer'];
+  const prepOnlyRemoveKeywords = ['fig&herb', 'hibiscus infused', 'hibiscus lavender', 'calamansi'];
+  const shouldRemove = n => removeKeywords.some(k => String(n||'').toLowerCase().includes(k));
+  const shouldRemovePrep = n => shouldRemove(n) || prepOnlyRemoveKeywords.some(k => String(n||'').toLowerCase().includes(k));
+  const keepPrep = state.batchNames.map((n,i)=>i).filter(i => !shouldRemovePrep(state.batchNames[i]));
+  state.batchNames = keepPrep.map(i => state.batchNames[i]);
+  state.batchConfigs = keepPrep.map(i => state.batchConfigs[i]);
+  state.batchReadings = keepPrep.map(i => state.batchReadings[i]);
+  const keepBar = state.batchBarNames.map((n,i)=>i).filter(i => !shouldRemove(state.batchBarNames[i]));
+  state.batchBarNames = keepBar.map(i => state.batchBarNames[i]);
+  state.batchBarConfigs = keepBar.map(i => state.batchBarConfigs[i]);
+  state.batchBarReadings = keepBar.map(i => state.batchBarReadings[i]);
+  addNames.forEach(name=>{
+    if(findBatchIdxByName(name) === -1){
+      state.batchNames.push(name);
+      state.batchConfigs.push(emptyBatchConfig());
+      state.batchReadings.push(emptyBatchReading());
+    }
+    if(findBatchBarIdxByName(name) === -1){
+      state.batchBarNames.push(name);
+      state.batchBarConfigs.push(emptyBatchBarConfig());
+      state.batchBarReadings.push(emptyBatchBarReading());
+    }
+  });
+  state.numBatches = state.batchNames.length;
+  state.numBatchBars = state.batchBarNames.length;
+  state.batchMenuNov2026AppliedV2 = true;
+}
+// one-time calibration for the four new batches (Nov 2026), measured by the owner as a full Slim
+// Cambro holding 3 L: Adam & Eve 3.45 Kg, Untouched Pearl 3.77 Kg, Life Its a Bitch 3.5 Kg, Spicy
+// Dealer 3.58 Kg. Those are gross weights (Cambro included), so the shared Slim Cambro tare is taken
+// off first, then scaled to the Sample Volume like every other batch. Synced to Bar Batches by name.
+if(!state.batchNewSlimCalNov2026){
+  const sampleMl = Number(state.batchSampleVolumeMl) || 750;
+  const slimEmptyKg = Number(state.batchGlobalSlimEmptyKg) || 0;
+  [['Adam & Eve', 3.45], ['Untouched Pearl', 3.77], ['Life Its a Bitch', 3.5], ['Spicy Dealer', 3.58]].forEach(([name, grossKg])=>{
+    const fullKg = Math.round(((grossKg - slimEmptyKg) / 3000) * sampleMl * 1000) / 1000;
+    const prepIdx = findBatchIdxByName(name);
+    if(prepIdx !== -1){
+      state.batchConfigs[prepIdx].fullKg = fullKg;
+      state.batchConfigs[prepIdx].containerType = 'cambro';
+    }
+    const barIdx = findBatchBarIdxByName(name);
+    if(barIdx !== -1) state.batchBarConfigs[barIdx].fullKg = fullKg;
+  });
+  state.batchNewSlimCalNov2026 = true;
+}
+// Same Slim Cambro calibration for Ferrero Rocher Espresso Martini: 3 L weighs 3.66 Kg gross.
+if(!state.batchFerreroSlimCalNov2026){
+  const sampleMl = Number(state.batchSampleVolumeMl) || 750;
+  const slimEmptyKg = Number(state.batchGlobalSlimEmptyKg) || 0;
+  const fullKg = Math.round(((3.66 - slimEmptyKg) / 3000) * sampleMl * 1000) / 1000;
+  const prepIdx = state.batchNames.findIndex(n => String(n||'').toLowerCase().includes('ferrero'));
+  if(prepIdx !== -1) state.batchConfigs[prepIdx].fullKg = fullKg;
+  const barIdx = state.batchBarNames.findIndex(n => String(n||'').toLowerCase().includes('ferrero'));
+  if(barIdx !== -1) state.batchBarConfigs[barIdx].fullKg = fullKg;
+  state.batchFerreroSlimCalNov2026 = true;
+}
 saveData();
 function kegName(i){
   return (state.names[i] && state.names[i].trim()) ? state.names[i] : `Keg ${i+1}`;
@@ -4266,12 +4367,13 @@ function renderBatchGrid(){
     }
 
     const card = document.createElement('div');
-    card.className = 'keg-card';
+    card.className = containerType === 'kegCocktail' ? 'keg-card keg-cocktail' : 'keg-card';
     card.innerHTML = `
       <div class="keg-card-head">
         <h3>${escapeHtml(batchName(i))}</h3>
         <span class="badge ${configured ? 'ok':'warn'}">${configured ? 'Configured':'Not Configured'}</span>
       </div>
+      ${containerType === 'kegCocktail' ? '<span class="container-tag">Keg Cocktail</span>' : ''}
       ${bodyHtml}
     `;
     grid.appendChild(card);
@@ -4513,15 +4615,16 @@ document.getElementById('batchBarExportBtn').addEventListener('click', ()=>{
   }
   // Row order/names follow BATCH_BAR_ITEMS exactly, matching the external app's import
   // template (Batch List Export.xlsx) so the sheet layout is always identical to it.
-  const header = ['Inventory item/ preparation','Qty'];
+  // Type column: the other platform's importer needs every batch row marked "Preparation".
+  const header = ['Inventory item/ preparation','Qty','Type'];
   const wsData = [header];
   BATCH_BAR_ITEMS.forEach(name=>{
     const key = name.trim().toLowerCase();
     const qty = qtyByName.hasOwnProperty(key) ? qtyByName[key] : '';
-    wsData.push([`${name} - L`, qty]);
+    wsData.push([`${name} - L`, qty, 'Preparation']);
   });
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-  ws['!cols'] = [{wch:51},{wch:9}];
+  ws['!cols'] = [{wch:51},{wch:9},{wch:14}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   const today = new Date().toISOString().slice(0,10);
